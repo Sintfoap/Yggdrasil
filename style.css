@@ -1,0 +1,230 @@
+/* ─── Reset & Base ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #050508;
+  --surface: rgba(255,255,255,0.04);
+  --border:  rgba(255,255,255,0.08);
+  --text:    #e8e4dc;
+  --muted:   #6b6760;
+  --accent:  #c8f542;
+  --accent2: #42f5c8;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'DM Mono', 'Courier New', monospace;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* ─── Google Fonts ─────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400&display=swap');
+
+/* ─── Three.js Canvas ──────────────────────────────────── */
+#bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+}
+
+/* ─── Overlay ───────────────────────────────────────────── */
+.overlay {
+  position: relative;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.overlay a,
+.overlay nav,
+.overlay .cta,
+.overlay .card,
+.overlay input,
+.overlay button { pointer-events: auto; }
+
+/* ─── Nav ───────────────────────────────────────────────── */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 3rem;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+  background: rgba(5,5,8,0.5);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+.nav ul {
+  list-style: none;
+  display: flex;
+  gap: 2.5rem;
+}
+
+.nav a {
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+.nav a:hover { color: var(--text); }
+
+/* ─── Hero ──────────────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 3rem;
+  max-width: 900px;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(4rem, 10vw, 9rem);
+  font-weight: 400;
+  line-height: 1.0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.hero-title .line {
+  display: block;
+  opacity: 0;
+  transform: translateY(30px);
+  animation: rise 0.9s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+
+.hero-title .line:nth-child(1) { animation-delay: 0.1s; }
+.hero-title .line:nth-child(2) { animation-delay: 0.3s; }
+
+.accent { color: var(--accent); font-style: italic; }
+
+.hero-sub {
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 2.5rem;
+  opacity: 0;
+  animation: rise 0.9s 0.55s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+
+.cta {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  transition: background 0.2s, color 0.2s;
+  align-self: flex-start;
+  opacity: 0;
+  animation: rise 0.9s 0.7s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+.cta:hover { background: var(--accent); color: var(--bg); }
+
+/* ─── Sections ──────────────────────────────────────────── */
+.section {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  padding: 6rem 3rem;
+}
+
+.section-inner {
+  max-width: 800px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 3rem;
+  backdrop-filter: blur(16px);
+  border-radius: 2px;
+}
+
+.section h2 {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 400;
+  margin-bottom: 1rem;
+  color: var(--accent2);
+}
+
+.section p {
+  color: var(--muted);
+  max-width: 55ch;
+}
+
+.section a { color: var(--accent); }
+
+/* ─── Cards ─────────────────────────────────────────────── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  padding: 1.5rem;
+  transition: border-color 0.2s, transform 0.2s;
+  cursor: default;
+}
+
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-4px);
+}
+
+.card h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 400;
+  margin-bottom: 0.5rem;
+}
+
+.card p { color: var(--muted); font-size: 0.82rem; }
+
+/* ─── Footer ─────────────────────────────────────────────── */
+footer {
+  padding: 2rem 3rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+/* ─── Animations ─────────────────────────────────────────── */
+@keyframes rise {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Responsive ─────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .nav { padding: 1rem 1.5rem; }
+  .nav ul { gap: 1.2rem; }
+  .hero { padding: 0 1.5rem; }
+  .section { padding: 4rem 1.5rem; }
+  .section-inner { padding: 2rem 1.5rem; }
+}
