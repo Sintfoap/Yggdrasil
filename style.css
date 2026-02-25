@@ -2,13 +2,13 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:      #050508;
-  --surface: rgba(255,255,255,0.04);
-  --border:  rgba(255,255,255,0.08);
-  --text:    #e8e4dc;
-  --muted:   #6b6760;
-  --accent:  #c8f542;
-  --accent2: #42f5c8;
+  --bg:      #00030a;
+  --surface: rgba(5, 40, 80, 0.25);
+  --border:  rgba(92, 240, 255, 0.12);
+  --text:    #cceeff;
+  --muted:   #4a7a99;
+  --accent:  #5cf0ff;
+  --accent2: #a0f0ff;
   --font-display: 'Playfair Display', Georgia, serif;
   --font-body:    'DM Mono', 'Courier New', monospace;
 }
