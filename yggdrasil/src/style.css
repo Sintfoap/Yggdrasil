@@ -1,0 +1,74 @@
+canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: radial-gradient(ellipse at center, #071022 0%, #00040a 60%);
+  color: #dfeff6;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+}
+
+/* subtle vignette around edges */
+canvas::before {
+  content: '';
+}
+
+/* ensure full viewport canvas */
+#bg {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+/* Left UI panel */
+#ui {
+  position: fixed;
+  left: 24px;
+  top: 24px;
+  width: 340px;
+  max-width: 40vw;
+  height: calc(100vh - 48px);
+  color: #dfeff6;
+  background: linear-gradient(180deg, rgba(10,14,20,0.35), rgba(5,6,10,0.2));
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 8px;
+  padding: 18px;
+  backdrop-filter: blur(6px) saturate(120%);
+  z-index: 10;
+}
+
+#ui h1 { margin: 0 0 8px 0; font-size: 20px; }
+#ui p { margin: 0; font-size: 13px; line-height: 1.4; color: #cfe6ff; opacity: 0.95; }
+#ui nav { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+#ui nav a { color: #d6f2ff; text-decoration: none; font-weight: 600; background: rgba(255,255,255,0.03); padding: 6px 8px; border-radius: 6px; font-size: 13px; }
+#ui nav a:hover { background: rgba(255,255,255,0.06); }
+
+/* Scrollable section cards inside the UI panel */
+#ui .scroll { position: absolute; top: 18px; left: 18px; right: 18px; bottom: 18px; overflow-y: scroll; overflow-x: hidden; display: block; }
+#ui .card { box-sizing: border-box; padding: 44px 10px 10px 10px; color: #dfeff6; position: relative; }
+/* primary card doesn't show a back button; keep its top padding smaller */
+#ui .card.primary { padding-top: 12px; }
+#ui .card h2 { margin: 0 0 6px 0; font-size: 16px; }
+#ui .card p { margin: 0; font-size: 13px; color: #cfe6ff; opacity: 0.95; }
+#ui .card.primary { font-weight: 700; }
+#ui .scroll::-webkit-scrollbar { width: 8px; }
+#ui .scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 8px; }
+
+/* Back-to-overview button inside each card */
+.card .back {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0,0,0,0.35);
+  color: #dfeff6;
+  border: 1px solid rgba(255,255,255,0.04);
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.card .back:hover { background: rgba(255,255,255,0.03); }
