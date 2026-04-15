@@ -64,13 +64,27 @@ export function setupControls(ctx) {
         try {
           if (planet.userData && planet.userData.realmName === 'Muspelheim') {
             // prefer a client-side view toggle when available (avoids loading a separate HTML file on hosts
-            // that restrict module/text fetches). fall back to a location change if the toggle isn't present.
+            // that restrict module/text fetches). Try `window.showMuspelheim`, then directly toggle the
+            // embedded DOM node if present, and only then fall back to a full navigation.
             try {
               if (typeof window.showMuspelheim === 'function') {
                 window.showMuspelheim();
                 return;
               }
-            } catch (e) { /* ignore and fall through */ }
+              // if the embedded muspelheim screen exists in the DOM, show it directly
+              try {
+                const mus = (typeof document !== 'undefined') ? document.getElementById('muspelheim-screen') : null;
+                const uiEl = (typeof document !== 'undefined') ? document.getElementById('ui') : null;
+                if (mus) {
+                  mus.classList.remove('hidden');
+                  mus.setAttribute('aria-hidden', 'false');
+                  if (uiEl) uiEl.style.display = 'none';
+                  try { history.pushState({ view: 'muspelheim' }, '', '/muspelheim.html'); } catch (e) { }
+                  return;
+                }
+              } catch (e) { /* ignore DOM toggling errors */ }
+            } catch (e) { /* ignore */ }
+            // fallback to an absolute navigation
             window.location.href = '/muspelheim.html';
             return;
           }
