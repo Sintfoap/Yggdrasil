@@ -63,7 +63,14 @@ export function setupControls(ctx) {
         // if this planet was designated as Muspelheim, redirect to its dedicated page
         try {
           if (planet.userData && planet.userData.realmName === 'Muspelheim') {
-            // use absolute path to avoid relative-url issues on some hosts
+            // prefer a client-side view toggle when available (avoids loading a separate HTML file on hosts
+            // that restrict module/text fetches). fall back to a location change if the toggle isn't present.
+            try {
+              if (typeof window.showMuspelheim === 'function') {
+                window.showMuspelheim();
+                return;
+              }
+            } catch (e) { /* ignore and fall through */ }
             window.location.href = '/muspelheim.html';
             return;
           }

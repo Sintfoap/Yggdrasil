@@ -73,6 +73,207 @@
     </div>
   </div>
 
+  <!-- Muspelheim in-page view (hidden by default). Embedded full content from muspelheim.html -->
+  <div id="muspelheim-screen" class="hidden" aria-hidden="true">
+    <!-- include muspelheim styles (copied from standalone file) -->
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      :root{--bg:#0a0a0a;--surface:#181818;--surface2:#242424;--border:#3a3a3a;--gold:#ffffff;--gold2:#e0e0e0;--text:#f0f0f0;--muted:#888888;--accent:#4a7ef5;--green:#2eb87a;--red:#e05060}
+      #muspelheim-screen{position:fixed;inset:0;background:var(--bg);color:var(--text);overflow:auto;z-index:10000;padding:32px}
+      #muspelheim-screen.hidden{display:none}
+      .header{background:#000;border-bottom:2px solid var(--gold);padding:2.5rem 1rem 2rem;text-align:center;position:relative;overflow:hidden}
+      .back-btn{position:absolute;left:18px;top:18px;z-index:10;background:transparent;color:var(--gold);border:1px solid var(--border);padding:0.5rem 0.8rem;border-radius:8px;cursor:pointer}
+      .subtitle{color:var(--muted);font-style:italic;margin-top:0.4rem;font-size:1.05rem}
+      .container{max-width:860px;margin:0 auto;padding:2rem 1rem}
+      .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.5rem}
+      /* additional muspelheim layout tweaks */
+      .leaderboard-layout{grid-auto-rows:auto}
+      #chart-container{overflow:hidden;position:relative}
+      .result-pills{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;position:absolute;left:8px;right:8px;bottom:8px;pointer-events:auto;max-height:56px;overflow:auto}
+      .result-pill{width:14px;height:14px;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,0.25) inset}
+    </style>
+
+    <header class="header">
+      <button class="back-btn" id="back-btn" aria-label="Back">← Back</button>
+      <h1>Acquire Status</h1>
+      <div class="subtitle">Acquire status — leaderboards and player timelines</div>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <h2 style="display:flex;justify-content:space-between;align-items:center">
+          <span>Leaderboard</span>
+          <span style="display:flex;gap:8px;align-items:center">
+            <label style="font-size:0.85rem;color:var(--muted)">Metric</label>
+            <select id="metric-select" style="min-width:160px">
+              <option value="total_earnings">Total Earnings</option>
+              <option value="games_won">Games Won</option>
+              <option value="win_rate">Win Rate</option>
+              <option value="avg_earnings_per_game">Avg Earnings/Game</option>
+            </select>
+            <label style="font-size:0.85rem;color:var(--muted)">Top</label>
+            <input id="top-n" type="number" min="1" max="50" value="10" style="width:64px" />
+          </span>
+        </h2>
+        <p class="empty" id="user-msg" style="margin-top:8px">Ready.</p>
+
+        <div id="leaderboard-chart" style="width:100%;height:200px;margin-top:12px;border-radius:8px;overflow:hidden;background:var(--surface2);box-sizing:border-box;padding:8px"></div>
+
+        <div class="leaderboard-layout" style="display:grid;grid-template-columns:minmax(min-content,220px) 1fr;gap:1rem;margin-top:12px">
+          <div class="card" style="max-height:60vh;overflow:auto;display:flex;flex-direction:column;padding:8px;box-sizing:border-box" id="users-list-wrap">
+            <h3 style="margin-bottom:8px;color:var(--gold)">Users</h3>
+            <ul id="users-list" style="list-style:none;padding:0;margin:0;flex:1;overflow:auto"></ul>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div id="user-desc" class="card" style="padding:12px;box-sizing:border-box;min-height:64px;">
+              <div id="user-desc-inner" style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <div id="desc-username" style="font-weight:800;color:var(--gold)">Select a user</div>
+                  <div id="desc-sub" style="color:var(--muted);font-size:0.95rem">Total earnings • Win rate</div>
+                </div>
+                <div id="desc-stats" style="text-align:right;color:var(--muted)"></div>
+              </div>
+            </div>
+            <div class="card" style="flex:1;display:flex;align-items:stretch;">
+              <div id="chart-container" style="flex:1;min-height:220px;border-radius:8px;background:var(--surface2);padding:8px;box-sizing:border-box;height:100%"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      // API root used by the visualizations
+      const API_ROOT = 'https://rhysfuller.com/acquire/api';
+
+      async function fetchUserHistory(username) {
+        const url = API_ROOT.replace(/\/$/, '') + '/users/' + encodeURIComponent(username) + '/';
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('Network');
+          const data = await res.json();
+          let games = null;
+          if (Array.isArray(data)) games = data;
+          else if (Array.isArray(data.game_history)) games = data.game_history;
+          else if (Array.isArray(data.gameHistory)) games = data.gameHistory;
+          else if (Array.isArray(data.games)) games = data.games;
+          else if (data.history && Array.isArray(data.history.games)) games = data.history.games;
+          else if (Array.isArray(data.games_played)) games = data.games_played;
+          else if (Array.isArray(data.games_list)) games = data.games_list;
+          else if (Array.isArray(data.user && data.user.games)) games = data.user.games;
+          else {
+            for (const k of Object.keys(data || {})) { if (Array.isArray(data[k])) { games = data[k]; break; } }
+          }
+          if (Array.isArray(games) && games.length) return { source: 'live', games };
+          if (Array.isArray(data)) return { source: 'live', games: data };
+          if (data && typeof data === 'object') {
+            for (const k of Object.keys(data)) {
+              if (Array.isArray(data[k]) && data[k].length && (data[k][0].id || data[k][0].game_id || data[k][0].created)) return { source: 'live', games: data[k] };
+            }
+          }
+          throw new Error('No games array');
+        } catch (err) { console.warn('fetchUserHistory failed', err); return null; }
+      }
+
+      function inferWinLossForEntry(entry, username) {
+        try {
+          const uname = (username || '').toLowerCase();
+          if (entry.result && typeof entry.result === 'string') {
+            const r = entry.result.toLowerCase(); if (r.includes('win')) return true; if (r.includes('loss') || r.includes('lose')) return false;
+          }
+          if (typeof entry.won === 'boolean') return entry.won;
+          if (typeof entry.placement === 'number') return entry.placement === 1 || entry.placement === 0;
+          if (entry.winner) {
+            const w = ('' + entry.winner).toLowerCase(); if (w === uname) return true; if (String(entry.winner) === String(entry.user_id || entry.player_id || '')) return true;
+          }
+          if (entry.winner_username && typeof entry.winner_username === 'string') { if (entry.winner_username.toLowerCase() === uname) return true; }
+          if (Array.isArray(entry.players) && entry.players.length) {
+            const p = entry.players.find(x => { const a = (x.username || x.name || x.player || x.user || x.id || '').toString().toLowerCase(); return a && uname && a === uname; }) || entry.players.find(x => x.user_id && String(x.user_id) === String(entry.user_id));
+            if (p) {
+              if (typeof p.position === 'number') return p.position === 1 || p.position === 0;
+              if (typeof p.rank === 'number') return p.rank === 1 || p.rank === 0;
+              if (typeof p.placement === 'number') return p.placement === 1 || p.placement === 0;
+              if (typeof p.money === 'number' || typeof p.score === 'number' || typeof p.cash === 'number' || typeof p.net === 'number') {
+                const key = (typeof p.money === 'number') ? 'money' : (typeof p.score === 'number' ? 'score' : (typeof p.cash === 'number' ? 'cash' : 'net'));
+                const top = Math.max(...entry.players.map(q => q[key] || 0));
+                return (p[key] || 0) >= top;
+              }
+            }
+          }
+          if (entry.results && typeof entry.results === 'object') {
+            const keys = Object.keys(entry.results);
+            if (keys.length) {
+              for (const k of keys) {
+                if (k.toLowerCase() === uname) {
+                  const v = entry.results[k]; if (v && (v.win === true || v === 'win' || v === 1)) return true; if (v && (v.loss === true || v === 'loss' || v === -1)) return false;
+                }
+              }
+              const vals = keys.map(k => ({ k, v: entry.results[k] })).filter(x => typeof x.v === 'number');
+              if (vals.length) { const top = Math.max(...vals.map(x => x.v)); const mine = vals.find(x => x.k.toLowerCase() === uname); if (mine) return mine.v >= top; }
+            }
+          }
+          return null;
+        } catch (e) { return null; }
+      }
+
+      function drawTimeline(results) { /* same implementation as standalone (omitted here for brevity) */
+        try {
+          const container = document.getElementById('chart-container'); if (!container) return;
+          let canvas = container.querySelector('canvas'); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = 'mcsr-chart'; canvas.style.width = '100%'; canvas.style.height = '100%'; canvas.style.borderRadius = '8px'; canvas.style.display = 'block'; container.innerHTML = ''; container.appendChild(canvas); }
+          const ctx = canvas.getContext('2d'); const DPR = devicePixelRatio || 1; const rect = container.getBoundingClientRect(); const cs = getComputedStyle(container);
+          const padLeft = parseFloat(cs.paddingLeft) || 0; const padRight = parseFloat(cs.paddingRight) || 0; const padTop = parseFloat(cs.paddingTop) || 0; const padBottom = parseFloat(cs.paddingBottom) || 0;
+          const innerCssW = Math.max(320, Math.floor(rect.width - padLeft - padRight)); const innerCssH = Math.max(120, Math.floor((rect.height || 180) - padTop - padBottom));
+          canvas.style.width = innerCssW + 'px'; canvas.style.height = innerCssH + 'px'; const w = canvas.width = Math.floor(innerCssW * DPR); const h = canvas.height = Math.floor(innerCssH * DPR);
+          ctx.clearRect(0, 0, w, h);
+          if (!results || !results.length) { ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`; ctx.fillText('No games to display', 12 * DPR, 24 * DPR); return; }
+          let cum = 0; const points = results.map(r => { const delta = (r.win === true) ? 1 : (r.win === false ? -1 : 0); cum += delta; return { date: r.date || 0, cum }; });
+          const vals = points.map(p => p.cum); const minCum = Math.min(0, ...vals); const maxCum = Math.max(0, ...vals); const pad = Math.max(1, Math.ceil((maxCum - minCum) * 0.1)); const yMin = minCum - pad; const yMax = maxCum + pad;
+          const margin = 30 * DPR; const usableW = w - margin * 2; const step = usableW / Math.max(1, points.length - 1);
+          const valueToY = (v) => { const range = (yMax - yMin) || 1; const frac = (v - yMin) / range; return h - margin - frac * (h - margin * 2); };
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h);
+          const ticks = Math.max(2, Math.min(6, Math.ceil(yMax - yMin))); ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = Math.max(1, 0.5 * DPR);
+          for (let i = 0; i <= ticks; i++) { const v = yMin + (i / ticks) * (yMax - yMin); const y = valueToY(v); ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(w - margin, y); ctx.stroke(); }
+          if (yMin <= 0 && yMax >= 0) { const y0 = valueToY(0); ctx.strokeStyle = '#444'; ctx.lineWidth = Math.max(1, DPR); ctx.beginPath(); ctx.moveTo(margin, y0); ctx.lineTo(w - margin, y0); ctx.stroke(); }
+          ctx.beginPath(); ctx.lineWidth = Math.max(2, 2 * DPR); ctx.strokeStyle = '#4a7ef5'; for (let i = 0; i < points.length; i++) { const x = margin + i * step; const y = valueToY(points[i].cum); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+          for (let i = 0; i < points.length; i++) { const x = margin + i * step; const y = valueToY(points[i].cum); const r = results[i]; const color = (r.win === true) ? '#2eb87a' : (r.win === false ? '#e05060' : '#888888'); ctx.beginPath(); ctx.fillStyle = '#111'; ctx.arc(x, y, 4 * DPR, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.fillStyle = color; ctx.arc(x, y, 3 * DPR, 0, Math.PI * 2); ctx.fill(); }
+          const legendX = w - margin - 180 * DPR; const legendY = margin / 2 + 8 * DPR; ctx.fillStyle = '#2eb87a'; ctx.fillRect(legendX, legendY, 12 * DPR, 12 * DPR); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`; ctx.fillText(' Win', legendX + 16 * DPR, legendY + 10 * DPR); ctx.fillStyle = '#e05060'; ctx.fillRect(legendX + 92 * DPR, legendY, 12 * DPR, 12 * DPR); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.fillText(' Loss', legendX + 108 * DPR, legendY + 10 * DPR);
+        } catch (err) { console.error('drawTimeline error', err); }
+      }
+
+      async function fetchUsersList() { const url = API_ROOT.replace(/\/$/, '') + '/users/'; try { const res = await fetch(url); if (!res.ok) throw new Error('Network'); const data = await res.json(); if (Array.isArray(data)) return data; if (data && Array.isArray(data.results)) return data.results; for (const k of Object.keys(data || {})) { if (Array.isArray(data[k])) return data[k]; } return null; } catch (e) { console.warn('fetchUsersList failed', e); return null; } }
+
+      function drawLeaderboard(users, metric = 'total_earnings', topN = 10) {
+        try {
+          const lbContainer = document.getElementById('leaderboard-chart'); if (!lbContainer) return; lbContainer.innerHTML = ''; const canvas = document.createElement('canvas'); canvas.id = 'lb-canvas'; canvas.style.width = '100%'; canvas.style.height = '100%'; lbContainer.appendChild(canvas); const ctx = canvas.getContext('2d'); const DPR = devicePixelRatio || 1; const rect = lbContainer.getBoundingClientRect(); const cs = getComputedStyle(lbContainer); const padLeft = parseFloat(cs.paddingLeft) || 0; const padRight = parseFloat(cs.paddingRight) || 0; const padTop = parseFloat(cs.paddingTop) || 0; const padBottom = parseFloat(cs.paddingBottom) || 0; const innerCssW = Math.max(320, Math.floor(rect.width - padLeft - padRight)); const innerCssH = Math.max(80, Math.floor((rect.height || 180) - padTop - padBottom)); canvas.style.width = innerCssW + 'px'; canvas.style.height = innerCssH + 'px'; const w = canvas.width = Math.floor(innerCssW * DPR); const h = canvas.height = Math.floor(innerCssH * DPR); ctx.clearRect(0, 0, w, h);
+          if (!users || !users.length) { ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`; ctx.fillText('No leaderboard data', 8 * DPR, 20 * DPR); return; }
+          const norm = users.map(u => ({ username: u.username || u.user || 'unknown', value: Number(u[metric] || 0) })); norm.sort((a, b) => b.value - a.value); const top = norm.slice(0, Math.max(1, Math.min(topN, norm.length))); const margin = 12 * DPR; const usableW = w - margin * 2; const slot = usableW / top.length; const barW = Math.max(8 * DPR, slot * 0.6); const maxVal = Math.max(1, ...top.map(t => Math.abs(t.value))); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h);
+          for (let i = 0; i < top.length; i++) { const x = margin + i * slot + (slot - barW) / 2; const v = top[i].value; const barH = (h - margin * 2) * (Math.abs(v) / maxVal); const y = h - margin - barH; ctx.fillStyle = '#4a7ef5'; ctx.fillRect(x, y, barW, barH); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${10 * DPR}px sans-serif`; ctx.textAlign = 'center'; const labelX = x + barW / 2; const labelY = h - 4 * DPR; const name = top[i].username.length > 8 ? top[i].username.slice(0, 8) + '…' : top[i].username; ctx.fillText(name, labelX, labelY); }
+        } catch (err) { console.error('drawLeaderboard error', err); }
+      }
+
+      function populateUserList(users) { try { const ul = document.getElementById('users-list'); if (!ul) return; ul.innerHTML = ''; const list = (users || []).slice().sort((a, b) => ('' + (a.username || a.user || '')).localeCompare(('' + (b.username || b.user || '')))); for (const u of list) { const name = u.username || u.user || 'unknown'; const li = document.createElement('li'); li.className = 'game-item'; li.style.cursor = 'pointer'; li.innerHTML = `<div style="flex:1"><strong style="color:var(--gold)">${name}</strong><div style="color:var(--muted);font-size:0.9rem">${u.games_played || 0} games</div></div>`; li.addEventListener('click', () => selectUser(name, u)); ul.appendChild(li); } } catch (e) { console.error('populateUserList error', e); } }
+
+      (async function initLeaderboard() { const msg = document.getElementById('user-msg'); msg.textContent = 'Loading users…'; const metric = document.getElementById('metric-select').value; const topN = parseInt(document.getElementById('top-n').value, 10) || 10; const users = await fetchUsersList(); if (!users) { msg.textContent = 'Failed to fetch user list.'; return; } window._acquire_state = window._acquire_state || {}; window._acquire_state.users = users; drawLeaderboard(users, metric, topN); populateUserList(users); msg.textContent = `Loaded leaderboard (${metric}) — top ${Math.min(topN, users.length)}`; })();
+
+      document.getElementById('metric-select').addEventListener('change', async () => { initRefresh(); });
+      document.getElementById('top-n').addEventListener('change', async () => { initRefresh(); });
+
+      const backBtn = document.getElementById('back-btn');
+      if (backBtn) {
+        backBtn.addEventListener('click', (e) => { e.preventDefault(); if (typeof window.showIndex === 'function') { window.showIndex(); } else { window.location.href = '/'; } });
+      }
+
+      async function initRefresh() { const msg = document.getElementById('user-msg'); msg.textContent = 'Refreshing…'; const metric = document.getElementById('metric-select').value; const topN = parseInt(document.getElementById('top-n').value, 10) || 10; const users = await fetchUsersList(); if (!users) { msg.textContent = 'Failed to fetch user list.'; return; } window._acquire_state = window._acquire_state || {}; window._acquire_state.users = users; drawLeaderboard(users, metric, topN); populateUserList(users); msg.textContent = `Loaded leaderboard (${metric}) — top ${Math.min(topN, users.length)}`; }
+
+      async function selectUser(username, userObj) { const msg = document.getElementById('user-msg'); msg.textContent = `Loading ${username}…`; document.getElementById('desc-username').textContent = username; const ue = (userObj && (userObj.total_earnings || userObj.total)) ? (Number(userObj.total_earnings || userObj.total || 0)) : 0; const ur = (userObj && (typeof userObj.win_rate === 'number')) ? userObj.win_rate : (userObj && userObj.games_played ? ((userObj.games_won || 0) / userObj.games_played) : null); document.getElementById('desc-sub').textContent = `Total earnings: ${ue.toLocaleString()} • Win rate: ${ur !== null ? Number(ur).toFixed(3) : 'N/A'}`; const resp = await fetchUserHistory(username); if (!resp) { msg.textContent = 'Failed to fetch user history.'; drawTimeline([]); return; } const raw = resp.games || resp.game_history || resp.games_played || resp.games_list || resp.games || resp; const entries = Array.isArray(raw) ? raw : (raw && raw.games) || []; const mapped = entries.map((g) => { const dateRaw = g.created_at || g.created || g.timestamp || g.date || g.played_at || g.started_at || null; const dt = dateRaw ? (new Date(dateRaw)).getTime() : null; const win = inferWinLossForEntry(g, username); return { date: dt, win, game_id: g.game_id || g.id || null, raw: g }; }).sort((a, b) => { if (a.date && b.date) return a.date - b.date; if (a.date && !b.date) return -1; if (!a.date && b.date) return 1; const ai = a.game_id || 0; const bi = b.game_id || 0; return ai - bi; }); window._acquire_state = window._acquire_state || {}; window._acquire_state.selectedUser = username; window._acquire_state.selectedUserObj = userObj || null; window._acquire_state.lastMapped = mapped; drawTimeline(mapped); renderInlineSummary(mapped); const wins = mapped.filter(x => x.win === true).length; const losses = mapped.filter(x => x.win === false).length; msg.textContent = `Loaded ${mapped.length} games — Wins: ${wins}, Losses: ${losses}`; }
+
+      function renderInlineSummary(mapped) { const container = document.getElementById('chart-container'); if (!container) return; let wrap = container.querySelector('.result-pills'); if (!wrap) { wrap = document.createElement('div'); wrap.className = 'result-pills'; container.appendChild(wrap); } wrap.innerHTML = ''; mapped.forEach((m, i) => { const pill = document.createElement('div'); pill.className = 'result-pill'; pill.title = m.date ? (new Date(m.date)).toLocaleString() : `Game ${i + 1}`; if (m.win === true) pill.style.background = 'var(--green)'; else if (m.win === false) pill.style.background = 'var(--red)'; else pill.style.background = 'var(--muted)'; wrap.appendChild(pill); }); }
+
+      (function () { function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; } window.addEventListener('resize', debounce(() => { try { const state = window._acquire_state || {}; const metric = (document.getElementById('metric-select') && document.getElementById('metric-select').value) || 'total_earnings'; const topN = parseInt((document.getElementById('top-n') && document.getElementById('top-n').value) || '10', 10) || 10; if (state.users) drawLeaderboard(state.users, metric, topN); if (state.lastMapped) drawTimeline(state.lastMapped); } catch (e) { console.warn('resize redraw error', e); } }, 200)); })();
+    </script>
+  </div>
+
   <canvas id="bg"></canvas>
   <div id="loading-overlay">
     <div class="loader">
