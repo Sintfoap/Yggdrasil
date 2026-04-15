@@ -72,3 +72,28 @@ canvas::before {
   cursor: pointer;
 }
 .card .back:hover { background: rgba(255,255,255,0.03); }
+
+/* Loading overlay */
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(2,6,12,0.95), rgba(2,6,12,0.8));
+  color: #eaf7ff;
+  z-index: 9999;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+}
+#loading-overlay.hidden { display: none; }
+.loader { text-align: center; }
+.loader .spinner {
+  width: 72px; height: 72px; border-radius: 50%;
+  border: 6px solid rgba(255,255,255,0.08);
+  border-top-color: #8fd8ff;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 12px auto;
+}
+.loader .msg { font-size: 14px; opacity: 0.95; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

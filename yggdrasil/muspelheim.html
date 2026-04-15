@@ -1,0 +1,1348 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Acquire Status</title>
+  <link rel="stylesheet" href="/src/style.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #181818;
+      --surface2: #242424;
+      --border: #3a3a3a;
+      --gold: #ffffff;
+      --gold2: #e0e0e0;
+      --text: #f0f0f0;
+      --muted: #888888;
+      --accent: #4a7ef5;
+      --green: #2eb87a;
+      --red: #e05060;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 36px;
+    }
+
+    .header {
+      background: #000;
+      border-bottom: 2px solid var(--gold);
+      padding: 2.5rem 1rem 2rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .back-btn {
+      position: absolute;
+      left: 18px;
+      top: 18px;
+      z-index: 10;
+      background: transparent;
+      color: var(--gold);
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.8rem;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .header .subtitle {
+      color: var(--muted);
+      font-style: italic;
+      margin-top: 0.4rem;
+      font-size: 1.05rem;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+    }
+
+    .card.full {
+      grid-column: 1 / -1;
+    }
+
+    .card h2 {
+      color: var(--gold);
+      font-size: 1.1rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.4rem;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #ffffff, #cccccc);
+      color: #0a0a0a
+    }
+
+    input,
+    select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      padding: 0.65rem 0.9rem;
+      width: 100%;
+    }
+
+    .game-list {
+      list-style: none;
+    }
+
+    .game-item {
+      padding: 0.8rem;
+      border-bottom: 1px solid var(--border);
+    }
+    /* Users list: align items and truncate long usernames so the column only sizes to content */
+    #users-list .game-item { display:flex; align-items:center; gap:8px; }
+    #users-list .game-item > div { min-width:0; }
+    #users-list .game-item strong { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+
+    /* Responsive tweaks to prevent horizontal overflow when selecting users */
+    .leaderboard-layout {
+      grid-auto-rows: auto;
+    }
+
+    #user-desc-inner {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #user-desc-inner>div:first-child {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    #desc-username {
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    /* make the subtitle and stats truncate if space is tight */
+    #desc-sub {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    #desc-stats {
+      flex: 0 0 auto;
+      margin-left: 12px;
+      min-width: 0;
+      max-width: 34%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-pills {
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    #chart-container {
+      overflow: hidden;
+      position: relative;
+    }
+
+    @media (max-width: 900px) {
+      .leaderboard-layout {
+        grid-template-columns: 1fr;
+      }
+
+      #leaderboard-chart {
+        height: 160px;
+      }
+
+      #users-list-wrap {
+        max-height: 40vh;
+      }
+
+      #desc-stats {
+        max-width: 40%;
+      }
+    }
+  </style>
+  <style>
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 600px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card.full {
+        overflow-x: auto;
+      }
+
+      .tier-table {
+        font-size: 0.75rem;
+        min-width: 480px;
+      }
+
+      .header {
+        padding: 1.5rem 1rem 1.2rem;
+      }
+
+      .header h1 {
+        font-size: clamp(2rem, 10vw, 3rem);
+      }
+
+      .btn {
+        padding: 0.85rem 1.2rem;
+        font-size: 1rem;
+      }
+
+      input,
+      select {
+        font-size: 1rem;
+        padding: 0.75rem 0.9rem;
+      }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+    }
+
+    .card.full {
+      grid-column: 1 / -1;
+    }
+
+    .card h2 {
+      color: var(--gold);
+      font-size: 1.1rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.4rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      filter: brightness(1.1);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #ffffff, #cccccc);
+      color: #0a0a0a;
+    }
+
+    .btn-blue {
+      background: linear-gradient(135deg, #4a7ef5, #2855c0);
+      color: #fff;
+    }
+
+    .btn-green {
+      background: linear-gradient(135deg, #2eb87a, #1a8050);
+      color: #fff;
+    }
+
+    .btn-sm {
+      padding: 0.4rem 0.9rem;
+      font-size: 0.82rem;
+    }
+
+    /* ── Form elements ── */
+    input,
+    select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      padding: 0.65rem 0.9rem;
+      font-size: 0.95rem;
+      width: 100%;
+      transition: border-color 0.2s;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--gold);
+    }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+
+    .field {
+      margin-bottom: 1rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .row .field {
+      flex: 1;
+      min-width: 140px;
+      margin-bottom: 0;
+    }
+
+    /* ── Chain pills ── */
+    .chains-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin: 1rem 0 0.5rem;
+    }
+
+    .chain-pill {
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* ── Game list ── */
+    .game-list {
+      list-style: none;
+    }
+
+    .game-item {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      padding: 0.8rem;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+
+    .game-item:last-child {
+      border-bottom: none;
+    }
+
+    .game-item:hover {
+      background: var(--surface2);
+      border-radius: 6px;
+    }
+
+    .game-item a {
+      color: var(--gold);
+      text-decoration: none;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .game-item a:hover {
+      text-decoration: underline;
+    }
+
+    .badge {
+      padding: 0.2rem 0.65rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge-turn {
+      background: #1a4a8a;
+      color: #80b4ff;
+    }
+
+    .badge-merger {
+      background: #4a2a1a;
+      color: #ffb080;
+    }
+
+    .badge-waiting {
+      background: #2a2a50;
+      color: #7070a0;
+    }
+
+    .badge-won {
+      background: #1a4a2a;
+      color: #60e090;
+    }
+
+    .badge-lost {
+      background: #4a1a2a;
+      color: #e06080;
+    }
+
+    .badge-draw {
+      background: #3a3a1a;
+      color: #d0c060;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+      padding: 0.5rem 0;
+      font-size: 0.9rem;
+    }
+
+    .error-msg {
+      color: var(--red);
+      margin-top: 0.5rem;
+      font-size: 0.88rem;
+      min-height: 1.2em;
+    }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-val {
+      font-size: 1.6rem;
+      font-weight: 900;
+      color: var(--gold);
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Rules ── */
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.8rem;
+      margin-top: 0.5rem;
+    }
+
+    .rule-item {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 0.8rem;
+    }
+
+    .rule-item strong {
+      color: var(--gold);
+      display: block;
+      margin-bottom: 0.3rem;
+      font-size: 0.88rem;
+    }
+
+    .rule-item p {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    /* ── Mode toggle ── */
+    .mode-toggle {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 0.5rem 0.6rem;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .mode-btn.active {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: #111;
+    }
+
+    .mode-btn:hover:not(.active) {
+      border-color: #555;
+      color: var(--text);
+    }
+
+    /* ── Slot builder ── */
+    .slot {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.6rem;
+      border-radius: 8px;
+      margin-bottom: 0.4rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .slot-you {
+      border-color: var(--accent);
+      opacity: 0.85;
+    }
+
+    .slot-role {
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-width: 3.6rem;
+      flex-shrink: 0;
+    }
+
+    .slot-name-fixed {
+      flex: 1;
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+
+    .slot-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      min-width: 0;
+    }
+
+    .slot-input::placeholder {
+      color: var(--muted);
+    }
+
+    .slot-ai-name {
+      flex: 1;
+      font-weight: 600;
+      color: var(--gold2);
+      font-size: 0.9rem;
+    }
+
+    .slot-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .slot-count {
+      flex: 1;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .slot-add {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.75rem;
+      font-size: 0.82rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .slot-add:hover:not(:disabled) {
+      border-color: var(--gold);
+      color: var(--gold);
+    }
+
+    .slot-add-ai:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .slot-add:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .slot-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+      border-radius: 4px;
+      line-height: 1;
+    }
+
+    .slot-btn:hover {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    /* ── Mode info cards ── */
+    .mode-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    @media (max-width:600px) {
+      .mode-cards {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mode-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+    }
+
+    .mode-card h3 {
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .mode-card.classic h3 {
+      color: #7ec8e3;
+    }
+
+    .mode-card.tycoon h3 {
+      color: #f0c060;
+    }
+
+    .mode-card p {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 0.4rem;
+    }
+
+    .mode-card ul {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.6;
+      padding-left: 1.1rem;
+    }
+
+    .mode-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+      margin-bottom: 0.5rem;
+    }
+
+    .mode-tag.classic {
+      background: #1a3a4a;
+      color: #7ec8e3;
+    }
+
+    .mode-tag.tycoon {
+      background: #3a2a10;
+      color: #f0c060;
+    }
+
+    /* ── Bonus table ── */
+    .bonus-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 0.75rem;
+    }
+
+    .bonus-table th {
+      color: var(--gold);
+      text-align: left;
+      padding: 0.35rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .bonus-table td {
+      padding: 0.35rem 0.6rem;
+      color: var(--muted);
+      border-bottom: 1px solid #222;
+    }
+
+    .bonus-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .bonus-table tr:hover td {
+      color: var(--text);
+    }
+
+    .bonus-label {
+      font-weight: 700;
+    }
+
+    .bonus-primary {
+      color: #f0c060;
+    }
+
+    .bonus-secondary {
+      color: #a0c8a0;
+    }
+
+    .bonus-tertiary {
+      color: #9090c0;
+    }
+
+    .tycoon-only {
+      font-size: 0.7rem;
+      color: #f0c060;
+      margin-left: 0.3rem;
+    }
+
+    /* ── Tier table ── */
+    .tier-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.83rem;
+      margin-top: 0.5rem;
+    }
+
+    .tier-table th {
+      color: var(--gold);
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tier-table td {
+      padding: 0.3rem 0.5rem;
+      color: var(--muted);
+    }
+
+    .tier-table tr:hover td {
+      color: var(--text);
+    }
+  </style>
+  <style>
+    /* Override global canvas rule from site stylesheet for our charts */
+    #chart-container,
+    #chart-container canvas,
+    #leaderboard-chart,
+    #leaderboard-chart canvas {
+      position: relative !important;
+      top: auto !important;
+      left: auto !important;
+      z-index: auto !important;
+    }
+
+    .result-pills {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      pointer-events: auto;
+      max-height: 56px;
+      overflow: auto;
+    }
+
+    .result-pill {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset
+    }
+
+    .result-pills::-webkit-scrollbar { height: 8px; }
+    .result-pills::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 6px; }
+  </style>
+</head>
+
+<body>
+  <header class="header">
+    <button class="back-btn" id="back-btn" aria-label="Back">← Back</button>
+    <h1>Acquire Status</h1>
+    <div class="subtitle">Acquire status — leaderboards and player timelines</div>
+  </header>
+
+  <!-- Endpoints panel removed (user requested). -->
+
+  <script>
+    // API root used by the visualizations
+    const API_ROOT = 'https://rhysfuller.com/acquire/api';
+  </script>
+
+  <main class="container">
+    <section class="card">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        <span>Leaderboard</span>
+        <span style="display:flex;gap:8px;align-items:center">
+          <label style="font-size:0.85rem;color:var(--muted)">Metric</label>
+          <select id="metric-select" style="min-width:160px">
+            <option value="total_earnings">Total Earnings</option>
+            <option value="games_won">Games Won</option>
+            <option value="win_rate">Win Rate</option>
+            <option value="avg_earnings_per_game">Avg Earnings/Game</option>
+          </select>
+          <label style="font-size:0.85rem;color:var(--muted)">Top</label>
+          <input id="top-n" type="number" min="1" max="50" value="10" style="width:64px" />
+        </span>
+      </h2>
+      <p class="empty" id="user-msg" style="margin-top:8px">Ready.</p>
+
+      <div id="leaderboard-chart"
+        style="width:100%;height:200px;margin-top:12px;border-radius:8px;overflow:hidden;background:var(--surface2);box-sizing:border-box;padding:8px">
+      </div>
+
+      <div class="leaderboard-layout"
+        style="display:grid;grid-template-columns:minmax(min-content,220px) 1fr;gap:1rem;margin-top:12px">
+        <div class="card"
+          style="max-height:60vh;overflow:auto;display:flex;flex-direction:column;padding:8px;box-sizing:border-box"
+          id="users-list-wrap">
+          <h3 style="margin-bottom:8px;color:var(--gold)">Users</h3>
+          <ul id="users-list" style="list-style:none;padding:0;margin:0;flex:1;overflow:auto"></ul>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div id="user-desc" class="card" style="padding:12px;box-sizing:border-box;min-height:64px;">
+            <div id="user-desc-inner" style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div id="desc-username" style="font-weight:800;color:var(--gold)">Select a user</div>
+                <div id="desc-sub" style="color:var(--muted);font-size:0.95rem">Total earnings • Win rate</div>
+              </div>
+              <div id="desc-stats" style="text-align:right;color:var(--muted)"></div>
+            </div>
+          </div>
+          <div class="card" style="flex:1;display:flex;align-items:stretch;">
+            <div id="chart-container"
+              style="flex:1;min-height:220px;border-radius:8px;background:var(--surface2);padding:8px;box-sizing:border-box;height:100%">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // MCSR timeline: fetch user history and draw simple win/loss timeline
+    async function fetchUserHistory(username) {
+      const url = API_ROOT.replace(/\/$/, '') + '/users/' + encodeURIComponent(username) + '/';
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        console.debug('fetchUserHistory: raw data for', username, data);
+        // try to find an array of games in common keys
+        let games = null;
+        // common locations
+        if (Array.isArray(data)) games = data;
+        else if (Array.isArray(data.game_history)) games = data.game_history;
+        else if (Array.isArray(data.gameHistory)) games = data.gameHistory;
+        else if (Array.isArray(data.games)) games = data.games;
+        else if (data.history && Array.isArray(data.history.games)) games = data.history.games;
+        else if (Array.isArray(data.games_played)) games = data.games_played;
+        else if (Array.isArray(data.games_list)) games = data.games_list;
+        else if (Array.isArray(data.user && data.user.games)) games = data.user.games;
+        else {
+          // fallback: find first array-valued prop that looks like games
+          for (const k of Object.keys(data || {})) {
+            if (Array.isArray(data[k])) { games = data[k]; break; }
+          }
+        }
+        if (Array.isArray(games) && games.length) {
+          console.debug('fetchUserHistory: extracted games array length', games.length, games.slice(0, 5));
+          return { source: 'live', games };
+        }
+        // sometimes response may already be an array
+        if (Array.isArray(data)) return { source: 'live', games: data };
+        // fallback: try to parse known wrapper shape where 'games' is nested in user
+        if (data && typeof data === 'object') {
+          // gather any array-valued properties that look like game entries
+          for (const k of Object.keys(data)) {
+            if (Array.isArray(data[k]) && data[k].length && (data[k][0].id || data[k][0].game_id || data[k][0].created)) return { source: 'live', games: data[k] };
+          }
+        }
+        throw new Error('No games array');
+      } catch (err) {
+        console.warn('fetchUserHistory failed', err);
+        return null;
+      }
+    }
+
+    function inferWinLossForEntry(entry, username) {
+      // heuristics to infer win/loss for this user entry
+      try {
+        const uname = (username || '').toLowerCase();
+        // common shapes
+        if (entry.result && typeof entry.result === 'string') {
+          const r = entry.result.toLowerCase();
+          if (r.includes('win')) return true;
+          if (r.includes('loss') || r.includes('lose')) return false;
+        }
+        if (typeof entry.won === 'boolean') return entry.won;
+        if (typeof entry.placement === 'number') return entry.placement === 1 || entry.placement === 0;
+        // winner field (could be username or id)
+        if (entry.winner) {
+          const w = ('' + entry.winner).toLowerCase();
+          if (w === uname) return true;
+          if (String(entry.winner) === String(entry.user_id || entry.player_id || '')) return true;
+        }
+        if (entry.winner_username && typeof entry.winner_username === 'string') {
+          if (entry.winner_username.toLowerCase() === uname) return true;
+        }
+        // if entry has players array with final money / score, find username and compare highest
+        if (Array.isArray(entry.players) && entry.players.length) {
+          const p = entry.players.find(x => {
+            const a = (x.username || x.name || x.player || x.user || x.id || '').toString().toLowerCase();
+            return a && uname && a === uname;
+          }) || entry.players.find(x => x.user_id && String(x.user_id) === String(entry.user_id));
+          if (p) {
+            // try placement
+            if (typeof p.position === 'number') return p.position === 1 || p.position === 0;
+            if (typeof p.rank === 'number') return p.rank === 1 || p.rank === 0;
+            if (typeof p.placement === 'number') return p.placement === 1 || p.placement === 0;
+            if (typeof p.money === 'number' || typeof p.score === 'number' || typeof p.cash === 'number' || typeof p.net === 'number') {
+              const key = (typeof p.money === 'number') ? 'money' : (typeof p.score === 'number' ? 'score' : (typeof p.cash === 'number' ? 'cash' : 'net'));
+              const top = Math.max(...entry.players.map(q => q[key] || 0));
+              return (p[key] || 0) >= top;
+            }
+          }
+        }
+        // sometimes a results object maps usernames -> values
+        if (entry.results && typeof entry.results === 'object') {
+          const keys = Object.keys(entry.results);
+          if (keys.length) {
+            // try to find username key (case-insensitive)
+            for (const k of keys) {
+              if (k.toLowerCase() === uname) {
+                const v = entry.results[k];
+                if (v && (v.win === true || v === 'win' || v === 1)) return true;
+                if (v && (v.loss === true || v === 'loss' || v === -1)) return false;
+              }
+            }
+            // else if results values are numeric, treat max as winner
+            const vals = keys.map(k => ({ k, v: entry.results[k] })).filter(x => typeof x.v === 'number');
+            if (vals.length) {
+              const top = Math.max(...vals.map(x => x.v));
+              const mine = vals.find(x => x.k.toLowerCase() === uname);
+              if (mine) return mine.v >= top;
+            }
+          }
+        }
+        // fallback: unknown
+        return null;
+      } catch (e) { return null; }
+    }
+
+    function drawTimeline(results) {
+      try {
+        const container = document.getElementById('chart-container');
+        if (!container) return;
+        let canvas = container.querySelector('canvas');
+        if (!canvas) {
+          canvas = document.createElement('canvas');
+          canvas.id = 'mcsr-chart';
+          canvas.style.width = '100%';
+          canvas.style.height = '100%';
+          canvas.style.borderRadius = '8px';
+          canvas.style.display = 'block';
+          container.innerHTML = '';
+          container.appendChild(canvas);
+        }
+        const ctx = canvas.getContext('2d');
+        const DPR = devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        const cs = getComputedStyle(container);
+        const padLeft = parseFloat(cs.paddingLeft) || 0;
+        const padRight = parseFloat(cs.paddingRight) || 0;
+        const padTop = parseFloat(cs.paddingTop) || 0;
+        const padBottom = parseFloat(cs.paddingBottom) || 0;
+        const innerCssW = Math.max(320, Math.floor(rect.width - padLeft - padRight));
+        const innerCssH = Math.max(120, Math.floor((rect.height || 180) - padTop - padBottom));
+        // ensure canvas CSS size matches container inner area (avoid clipping)
+        canvas.style.width = innerCssW + 'px';
+        canvas.style.height = innerCssH + 'px';
+        const w = canvas.width = Math.floor(innerCssW * DPR);
+        const h = canvas.height = Math.floor(innerCssH * DPR);
+        ctx.clearRect(0, 0, w, h);
+        if (!results || !results.length) {
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424';
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888';
+          ctx.font = `${12 * DPR}px sans-serif`;
+          ctx.fillText('No games to display', 12 * DPR, 24 * DPR);
+          return;
+        }
+
+        // Build cumulative series
+        let cum = 0;
+        const points = results.map(r => {
+          const delta = (r.win === true) ? 1 : (r.win === false ? -1 : 0);
+          cum += delta;
+          return { date: r.date || 0, cum };
+        });
+
+        const vals = points.map(p => p.cum);
+        const minCum = Math.min(0, ...vals);
+        const maxCum = Math.max(0, ...vals);
+        const pad = Math.max(1, Math.ceil((maxCum - minCum) * 0.1));
+        const yMin = minCum - pad;
+        const yMax = maxCum + pad;
+
+        const margin = 30 * DPR;
+        const usableW = w - margin * 2;
+        const step = usableW / Math.max(1, points.length - 1);
+
+        const valueToY = (v) => {
+          const range = (yMax - yMin) || 1;
+          const frac = (v - yMin) / range;
+          return h - margin - frac * (h - margin * 2);
+        };
+
+        // background
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424';
+        ctx.fillRect(0, 0, w, h);
+
+        // grid
+        const ticks = Math.max(2, Math.min(6, Math.ceil(yMax - yMin)));
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = Math.max(1, 0.5 * DPR);
+        for (let i = 0; i <= ticks; i++) {
+          const v = yMin + (i / ticks) * (yMax - yMin);
+          const y = valueToY(v);
+          ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(w - margin, y); ctx.stroke();
+        }
+
+        // zero baseline
+        if (yMin <= 0 && yMax >= 0) {
+          const y0 = valueToY(0);
+          ctx.strokeStyle = '#444'; ctx.lineWidth = Math.max(1, DPR);
+          ctx.beginPath(); ctx.moveTo(margin, y0); ctx.lineTo(w - margin, y0); ctx.stroke();
+        }
+
+        // cumulative line
+        ctx.beginPath(); ctx.lineWidth = Math.max(2, 2 * DPR); ctx.strokeStyle = '#4a7ef5';
+        for (let i = 0; i < points.length; i++) {
+          const x = margin + i * step;
+          const y = valueToY(points[i].cum);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // points
+        for (let i = 0; i < points.length; i++) {
+          const x = margin + i * step;
+          const y = valueToY(points[i].cum);
+          const r = results[i];
+          const color = (r.win === true) ? '#2eb87a' : (r.win === false ? '#e05060' : '#888888');
+          ctx.beginPath(); ctx.fillStyle = '#111'; ctx.arc(x, y, 4 * DPR, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.fillStyle = color; ctx.arc(x, y, 3 * DPR, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // legend (wider padding)
+        const legendX = w - margin - 180 * DPR;
+        const legendY = margin / 2 + 8 * DPR;
+        ctx.fillStyle = '#2eb87a'; ctx.fillRect(legendX, legendY, 12 * DPR, 12 * DPR);
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`;
+        ctx.fillText(' Win', legendX + 16 * DPR, legendY + 10 * DPR);
+        ctx.fillStyle = '#e05060'; ctx.fillRect(legendX + 92 * DPR, legendY, 12 * DPR, 12 * DPR);
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.fillText(' Loss', legendX + 108 * DPR, legendY + 10 * DPR);
+
+      } catch (err) {
+        console.error('drawTimeline error', err);
+      }
+    }
+
+    async function fetchUsersList() {
+      const url = API_ROOT.replace(/\/$/, '') + '/users/';
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        if (Array.isArray(data)) return data;
+        if (data && Array.isArray(data.results)) return data.results;
+        for (const k of Object.keys(data || {})) { if (Array.isArray(data[k])) return data[k]; }
+        return null;
+      } catch (e) {
+        console.warn('fetchUsersList failed', e);
+        return null;
+      }
+    }
+
+    function drawLeaderboard(users, metric = 'total_earnings', topN = 10) {
+      try {
+        const lbContainer = document.getElementById('leaderboard-chart');
+        if (!lbContainer) return;
+        lbContainer.innerHTML = '';
+        const canvas = document.createElement('canvas');
+        canvas.id = 'lb-canvas';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        lbContainer.appendChild(canvas);
+        const ctx = canvas.getContext('2d');
+        const DPR = devicePixelRatio || 1;
+        const rect = lbContainer.getBoundingClientRect();
+        const cs = getComputedStyle(lbContainer);
+        const padLeft = parseFloat(cs.paddingLeft) || 0;
+        const padRight = parseFloat(cs.paddingRight) || 0;
+        const padTop = parseFloat(cs.paddingTop) || 0;
+        const padBottom = parseFloat(cs.paddingBottom) || 0;
+        const innerCssW = Math.max(320, Math.floor(rect.width - padLeft - padRight));
+        const innerCssH = Math.max(80, Math.floor((rect.height || 180) - padTop - padBottom));
+        // size the canvas to the inner area so labels at the bottom are not clipped by container padding
+        canvas.style.width = innerCssW + 'px';
+        canvas.style.height = innerCssH + 'px';
+        const w = canvas.width = Math.floor(innerCssW * DPR);
+        const h = canvas.height = Math.floor(innerCssH * DPR);
+        ctx.clearRect(0, 0, w, h);
+
+        if (!users || !users.length) {
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424';
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888';
+          ctx.font = `${12 * DPR}px sans-serif`;
+          ctx.fillText('No leaderboard data', 8 * DPR, 20 * DPR);
+          return;
+        }
+
+        const norm = users.map(u => ({
+          username: u.username || u.user || 'unknown',
+          value: Number(u[metric] || 0)
+        }));
+        norm.sort((a, b) => b.value - a.value);
+        const top = norm.slice(0, Math.max(1, Math.min(topN, norm.length)));
+
+        const margin = 12 * DPR;
+        const usableW = w - margin * 2;
+        const slot = usableW / top.length;
+        const barW = Math.max(8 * DPR, slot * 0.6);
+        const maxVal = Math.max(1, ...top.map(t => Math.abs(t.value)));
+
+        // background
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424';
+        ctx.fillRect(0, 0, w, h);
+
+        // bars
+        for (let i = 0; i < top.length; i++) {
+          const x = margin + i * slot + (slot - barW) / 2;
+          const v = top[i].value;
+          const barH = (h - margin * 2) * (Math.abs(v) / maxVal);
+          const y = h - margin - barH;
+          ctx.fillStyle = '#4a7ef5';
+          ctx.fillRect(x, y, barW, barH);
+          // label
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888';
+          ctx.font = `${10 * DPR}px sans-serif`;
+          ctx.textAlign = 'center';
+          const labelX = x + barW / 2;
+          const labelY = h - 4 * DPR;
+          const name = top[i].username.length > 8 ? top[i].username.slice(0, 8) + '…' : top[i].username;
+          ctx.fillText(name, labelX, labelY);
+        }
+
+      } catch (err) { console.error('drawLeaderboard error', err); }
+    }
+
+    function populateUserList(users) {
+      try {
+        const ul = document.getElementById('users-list');
+        if (!ul) return;
+        ul.innerHTML = '';
+        const list = (users || []).slice().sort((a, b) => ('' + (a.username || a.user || '')).localeCompare(('' + (b.username || b.user || ''))));
+        for (const u of list) {
+          const name = u.username || u.user || 'unknown';
+          const li = document.createElement('li');
+          li.className = 'game-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = `<div style="flex:1"><strong style="color:var(--gold)">${name}</strong><div style="color:var(--muted);font-size:0.9rem">${u.games_played || 0} games</div></div>`;
+          li.addEventListener('click', () => selectUser(name, u));
+          ul.appendChild(li);
+        }
+      } catch (e) { console.error('populateUserList error', e); }
+    }
+
+    // graph-type selector behaviour
+    // initialize leaderboard view: fetch users and populate list
+    (async function initLeaderboard() {
+      const msg = document.getElementById('user-msg');
+      msg.textContent = 'Loading users…';
+      const metric = document.getElementById('metric-select').value;
+      const topN = parseInt(document.getElementById('top-n').value, 10) || 10;
+      const users = await fetchUsersList();
+      if (!users) { msg.textContent = 'Failed to fetch user list.'; return; }
+      // store state and populate UI
+      window._acquire_state = window._acquire_state || {};
+      window._acquire_state.users = users;
+      drawLeaderboard(users, metric, topN);
+      populateUserList(users);
+      msg.textContent = `Loaded leaderboard (${metric}) — top ${Math.min(topN, users.length)}`;
+    })();
+
+    // clicking the top controls should refresh the list
+    document.getElementById('metric-select').addEventListener('change', async () => { initRefresh(); });
+    document.getElementById('top-n').addEventListener('change', async () => { initRefresh(); });
+
+    // back button behaviour: navigate to index page
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', (e) => { e.preventDefault(); window.location.href = 'index.html'; });
+    }
+
+    async function initRefresh() {
+      const msg = document.getElementById('user-msg');
+      msg.textContent = 'Refreshing…';
+      const metric = document.getElementById('metric-select').value;
+      const topN = parseInt(document.getElementById('top-n').value, 10) || 10;
+      const users = await fetchUsersList();
+      if (!users) { msg.textContent = 'Failed to fetch user list.'; return; }
+      window._acquire_state = window._acquire_state || {};
+      window._acquire_state.users = users;
+      drawLeaderboard(users, metric, topN);
+      populateUserList(users);
+      msg.textContent = `Loaded leaderboard (${metric}) — top ${Math.min(topN, users.length)}`;
+    }
+
+    async function selectUser(username, userObj) {
+      const msg = document.getElementById('user-msg');
+      msg.textContent = `Loading ${username}…`;
+      // update description
+      document.getElementById('desc-username').textContent = username;
+      const ue = (userObj && (userObj.total_earnings || userObj.total)) ? (Number(userObj.total_earnings || userObj.total || 0)) : 0;
+      const ur = (userObj && (typeof userObj.win_rate === 'number')) ? userObj.win_rate : (userObj && userObj.games_played ? ((userObj.games_won || 0) / userObj.games_played) : null);
+      document.getElementById('desc-sub').textContent = `Total earnings: ${ue.toLocaleString()} • Win rate: ${ur !== null ? Number(ur).toFixed(3) : 'N/A'}`;
+      // fetch game history and draw timeline for this user
+      const resp = await fetchUserHistory(username);
+      if (!resp) { msg.textContent = 'Failed to fetch user history.'; drawTimeline([]); return; }
+      const raw = resp.games || resp.game_history || resp.games_played || resp.games_list || resp.games || resp;
+      const entries = Array.isArray(raw) ? raw : (raw && raw.games) || [];
+      const mapped = entries.map((g) => {
+        const dateRaw = g.created_at || g.created || g.timestamp || g.date || g.played_at || g.started_at || null;
+        const dt = dateRaw ? (new Date(dateRaw)).getTime() : null;
+        const win = inferWinLossForEntry(g, username);
+        return { date: dt, win, game_id: g.game_id || g.id || null, raw: g };
+      }).sort((a, b) => {
+        if (a.date && b.date) return a.date - b.date;
+        if (a.date && !b.date) return -1;
+        if (!a.date && b.date) return 1;
+        const ai = a.game_id || 0; const bi = b.game_id || 0; return ai - bi;
+      });
+      // store selection state so we can redraw on resize
+      window._acquire_state = window._acquire_state || {};
+      window._acquire_state.selectedUser = username;
+      window._acquire_state.selectedUserObj = userObj || null;
+      window._acquire_state.lastMapped = mapped;
+      drawTimeline(mapped);
+      renderInlineSummary(mapped);
+      const wins = mapped.filter(x => x.win === true).length;
+      const losses = mapped.filter(x => x.win === false).length;
+      msg.textContent = `Loaded ${mapped.length} games — Wins: ${wins}, Losses: ${losses}`;
+    }
+
+    function renderInlineSummary(mapped) {
+      const container = document.getElementById('chart-container');
+      if (!container) return;
+      // render pills as an overlay so they do not change container height
+      let wrap = container.querySelector('.result-pills');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.className = 'result-pills';
+        container.appendChild(wrap);
+      }
+      wrap.innerHTML = '';
+      mapped.forEach((m, i) => {
+        const pill = document.createElement('div'); pill.className = 'result-pill';
+        pill.title = m.date ? (new Date(m.date)).toLocaleString() : `Game ${i + 1}`;
+        if (m.win === true) pill.style.background = 'var(--green)';
+        else if (m.win === false) pill.style.background = 'var(--red)';
+        else pill.style.background = 'var(--muted)';
+        wrap.appendChild(pill);
+      });
+    }
+
+    // Redraw charts responsively on window resize (debounced)
+    (function () {
+      function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; }
+      window.addEventListener('resize', debounce(() => {
+        try {
+          const state = window._acquire_state || {};
+          const metric = (document.getElementById('metric-select') && document.getElementById('metric-select').value) || 'total_earnings';
+          const topN = parseInt((document.getElementById('top-n') && document.getElementById('top-n').value) || '10', 10) || 10;
+          if (state.users) drawLeaderboard(state.users, metric, topN);
+          if (state.lastMapped) drawTimeline(state.lastMapped);
+        } catch (e) { console.warn('resize redraw error', e); }
+      }, 200));
+    })();
+  </script>
+</body>
+
+</html>

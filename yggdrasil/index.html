@@ -6,6 +6,18 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>yggdrasil</title>
+  <style>
+    /* Critical inline styles so the loading overlay appears styled before external CSS loads */
+    html,body{height:100%;margin:0;background:radial-gradient(ellipse at center,#071022 0%,#00040a 60%);color:#dfeff6;font-family:Segoe UI, Roboto, sans-serif}
+    canvas{position:fixed;top:0;left:0}
+    #bg{width:100vw;height:100vh;display:block}
+    #loading-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(2,6,12,0.95),rgba(2,6,12,0.8));color:#eaf7ff;z-index:9999;font-family:Segoe UI, Roboto, sans-serif}
+    #loading-overlay.hidden{display:none}
+    .loader{text-align:center}
+    .loader .spinner{width:72px;height:72px;border-radius:50%;border:6px solid rgba(255,255,255,0.08);border-top-color:#8fd8ff;animation:spin 1s linear infinite;margin:0 auto 12px auto}
+    .loader .msg{font-size:14px;opacity:0.95}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
 </head>
 
 <body>
@@ -45,11 +57,7 @@
           projects.</p>
         <button class="back">Back to Top</button>
       </section>
-      <section class="card">
-        <h2>Speaking &amp; Workshops</h2>
-        <p>Talks and workshop materials on WebGL, realtime graphics, and building interactive prototypes.</p>
-        <button class="back">Back to Top</button>
-      </section>
+      
       <section class="card">
         <h2>About</h2>
         <p>Background, interests, and a short CV summary. I enjoy building systems that encourage playful exploration
@@ -66,6 +74,12 @@
   </div>
 
   <canvas id="bg"></canvas>
+  <div id="loading-overlay">
+    <div class="loader">
+      <div class="spinner"></div>
+      <div class="msg">Loading…</div>
+    </div>
+  </div>
   <script>
     // stiff snap-scrolling for the `#ui .scroll` element
     (function () {
@@ -178,7 +192,34 @@
     })();
   </script>
 
-  <script type="module" src="/src/main.js"></script>
+  <script type="module">
+    // Defer loading of the heavy app module until after the first
+    // paint so the loading overlay can render immediately.
+    (async () => {
+      try {
+        // Make sure the overlay is visible and force a layout/paint
+        try {
+          const ov = document.getElementById('loading-overlay');
+          if (ov) {
+            ov.classList.remove('hidden');
+            // touch layout to force paint on some browsers
+            void ov.offsetHeight;
+            // also read computed style
+            const cs = window.getComputedStyle(ov);
+            console.log('loading-overlay pre-import display:', cs.display, 'opacity:', cs.opacity, 'zIndex:', cs.zIndex);
+          }
+        } catch (e) { /* ignore */ }
+        // wait a couple of frames so the browser can paint the overlay
+        await new Promise((r) => requestAnimationFrame(r));
+        await new Promise((r) => requestAnimationFrame(r));
+        // slightly longer timeout to ensure the overlay actually paints
+        await new Promise((r) => setTimeout(r, 120));
+        await import('/src/main.js');
+      } catch (e) {
+        console.error('Failed to load app module', e);
+      }
+    })();
+  </script>
 </body>
 
 </html>

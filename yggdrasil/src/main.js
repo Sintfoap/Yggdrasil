@@ -1,31 +1,38 @@
 import './style.css';
 import { makeSphere, updateOrbits } from './utilities.js';
-
+import { makePlanetTexture, makeContinentalTexture } from './textures.js';
+import { createVolcanoParticles } from './particles.js';
+import { scene, camera, renderer, createParticleTexture } from './sceneSetup.js';
+import { orbitSpeed, realmRadius, clockOffsetX, cameraBase, cameraTarget, cameraFollowOffset } from './settings.js';
+import { sphericalToCartesian, addMoon, addPlanetRing, addGlowRing, addThinAtmosphere, addParticleStorm, createCloudLayer, scatterCones, scatterLights } from './decorations.js';
+import { createAnimator } from './animation.js';
+import { loading } from './loader.js';
+import { setupControls } from './controls.js';
 import * as THREE from 'three';
+// diagnostic: check whether the loading overlay is visible when main module runs
+try {
+  const ov = typeof document !== 'undefined' ? document.getElementById('loading-overlay') : null;
+  if (ov) {
+    const cs = window.getComputedStyle(ov);
+    console.log('main module start: loading-overlay display=', cs.display, 'opacity=', cs.opacity, 'zIndex=', cs.zIndex);
+    // if overlay is hidden for any reason, make it visible for now
+    if (cs.display === 'none') ov.classList.remove('hidden');
+  } else console.warn('main module start: loading-overlay element not found');
+} catch (e) { console.warn('main diagnostic failed', e); }
+
+// Yield a few frames and a short timeout so the browser can paint the
+// `#loading-overlay` before the heavy synchronous initialization below.
+if (typeof window !== 'undefined') {
+  try {
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => setTimeout(r, 32));
+  } catch (e) { /* ignore */ }
+}
 
 
-const scene = new THREE.Scene();
-
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-const renderer = new THREE.WebGLRenderer({
-  canvas: document.querySelector('#bg'),
-});
-
-
-const orbitSpeed = 0.0001;
-// slightly smaller planets so outer decorations avoid the clock face
-const realmRadius = 0.36;
-// define clockOffsetX before using it
-const clockOffsetX = 3.6;
-
-const smokeParticleTex = createParticleTexture(128, 'rgba(160,140,120,0.95)', 'rgba(0,0,0,0)');
-const emberParticleTex = createParticleTexture(64, 'rgba(255,180,110,0.95)', 'rgba(0,0,0,0)');
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
 // base camera position (slightly left so clock sits to the right within the view)
-const cameraBase = new THREE.Vector3(9, 0, 10);
-const cameraTarget = new THREE.Vector3(-1.4, 0, 0);
+// `cameraBase` and `cameraTarget` are imported from `settings.js`
 camera.position.copy(cameraBase);
 camera.rotation.set(0, 1, 0);
 // add camera to scene so camera-attached children (snow) render correctly
@@ -42,24 +49,7 @@ const cameraAnim = {
   toTarget: new THREE.Vector3()
 };
 
-function computeCameraFocusForIndex(idx) {
-  // idx 0 => overview
-  if (idx === 0) {
-    return {
-      base: new THREE.Vector3(9, 0, 10),
-      target: new THREE.Vector3(-1.4, 0, 0)
-    };
-  }
-  const planet = planets[idx - 1];
-  if (!planet) return null;
-  const worldPos = new THREE.Vector3();
-  planet.getWorldPosition(worldPos);
-  // place the camera slightly above and behind the planet
-  const offset = new THREE.Vector3(0, 1.2, 2.8);
-  const base = worldPos.clone().add(offset);
-  const target = worldPos.clone();
-  return { base, target };
-}
+
 
 // strengthen atmosphere visuals: rim glow and pulsing intensity
 function strengthenAtmosphere(planet, { intensity = 1.6, rimColor = 0xaaddff } = {}) {
@@ -84,69 +74,10 @@ function strengthenAtmosphere(planet, { intensity = 1.6, rimColor = 0xaaddff } =
   });
 }
 
-function moveCameraToSection(idx) {
-  const focus = computeCameraFocusForIndex(idx);
-  if (!focus) return;
-  cameraAnim.active = true;
-  cameraAnim.startTime = performance.now();
-  cameraAnim.duration = 700;
-  cameraAnim.fromBase.copy(cameraBase);
-  cameraAnim.fromTarget.copy(cameraTarget);
-  cameraAnim.toBase.copy(focus.base);
-  cameraAnim.toTarget.copy(focus.target);
-  // if this section corresponds to a planet, request follow when animation completes
-  if (idx === 0) {
-    cameraAnim.followOnComplete = null;
-    cameraFollow = null;
-  } else {
-    cameraAnim.followOnComplete = planets[idx - 1] || null;
-  }
-}
-// expose to UI
-window.moveCameraToSection = moveCameraToSection;
+// controls (pointer + camera section navigation) moved to src/controls.js
 
-// --- Click-to-section: raycasting to detect planet clicks and trigger UI + camera
-const raycaster = new THREE.Raycaster();
-const canvas = renderer.domElement;
-const pointer = new THREE.Vector2();
-
-function findPlanetFromObject(obj) {
-  while (obj) {
-    if (planets.includes(obj)) return obj;
-    obj = obj.parent;
-  }
-  return null;
-}
-
-function onPointerDown(e) {
-  const rect = canvas.getBoundingClientRect();
-  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = - ((e.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const intersects = raycaster.intersectObjects(planets, true);
-  if (intersects.length > 0) {
-    const hit = intersects[0].object;
-    const planet = findPlanetFromObject(hit);
-    if (planet) {
-      // If this planet is currently being followed, clicking it again returns to the overview
-      if (cameraFollow === planet) {
-        try { if (window.snapToSection) window.snapToSection(0); } catch (err) { }
-        try { if (window.moveCameraToSection) window.moveCameraToSection(0); } catch (err) { }
-        return;
-      }
-      const idx = planets.indexOf(planet);
-      const sectionIndex = idx + 1; // UI sections: 0 = overview, 1.. = planets
-      try { if (window.snapToSection) window.snapToSection(sectionIndex); } catch (err) { }
-      try { if (window.moveCameraToSection) window.moveCameraToSection(sectionIndex); } catch (err) { }
-    }
-  }
-}
-
-canvas.addEventListener('pointerdown', onPointerDown, { passive: true });
-
-// follow state: when set to a planet Mesh, camera will update each frame to follow it
-let cameraFollow = null;
-let cameraFollowOffset = new THREE.Vector3(0, 1.2, 2.8);
+// shared app state used by UI and animator (camera follow + pointer target)
+const appState = { cameraFollow: null, targetMouse: { x: 0, y: 0 } };
 
 const Asgard = makeSphere(realmRadius, 0xffd27a, clockOffsetX, 6, 0, scene, { materialOptions: { metalness: 0.7, roughness: 0.25, emissive: 0x402200, emissiveIntensity: 0.02 } });
 const Niflheim = makeSphere(realmRadius, 0x7fb7ff, clockOffsetX, -6, 0, scene, { materialOptions: { metalness: 0.05, roughness: 0.7, emissive: 0x002233, emissiveIntensity: 0.03 } });
@@ -159,6 +90,8 @@ const Jotunheim = makeSphere(realmRadius, 0x9aa0ff, -6, 0, 0, scene, { materialO
 const Vanaheim = makeSphere(realmRadius, 0xffcda6, -6 * Math.cos((45 * Math.PI) / 180), 7 * Math.sin((45 * Math.PI) / 180), 0, scene, { materialOptions: { metalness: 0.15, roughness: 0.45 } });
 // Muspelheim slightly smaller and with a tighter ring to avoid the clock
 const Muspelheim = makeSphere(realmRadius * 0.85, 0xff6b3d, 6 * Math.cos((45 * Math.PI) / 180), -7 * Math.sin((45 * Math.PI) / 180), 0, scene, { materialOptions: { metalness: 0.2, roughness: 0.35, emissive: 0x220500, emissiveIntensity: 0.08 }, ring: true, ringColor: 0xff8a5b, ringOpacity: 0.9, ringRotationX: Math.PI / 2 - 0.8, ringRotationZ: 0.4, ringOffset: 0.48, ringThickness: 0.05 });
+// mark with a stable identifier so UI/controls can special-case this realm
+Muspelheim.userData.realmName = 'Muspelheim';
 
 const Svartalfheim = makeSphere(realmRadius, 0x9a9a9a, 6 * Math.cos((45 * Math.PI) / 180), 7 * Math.sin((45 * Math.PI) / 180), 0, scene, { materialOptions: { metalness: 0.6, roughness: 0.4 } });
 const Nidavellir = makeSphere(realmRadius, 0xc2b280, -6 * Math.cos((45 * Math.PI) / 180), -7 * Math.sin((45 * Math.PI) / 180), 0, scene, { materialOptions: { metalness: 0.8, roughness: 0.25 } });
@@ -231,40 +164,6 @@ try {
   // ignore errors in non-browser contexts
 }
 
-function addMoon(planet, { radius = 0.07, distance = 0.5, color = 0xffffff, speed = 0.001 } = {}) {
-  const r = radius;
-  const geom = new THREE.SphereGeometry(r, 12, 12);
-  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.7 });
-  const moon = new THREE.Mesh(geom, mat);
-  moon.position.set(distance, 0, 0);
-  moon.userData = {
-    angleOffset: Math.random() * Math.PI * 2,
-    speed,
-    orbitRadius: distance,
-    inclination: (Math.random() - 0.5) * 0.9,
-    yaw: Math.random() * Math.PI * 2
-  };
-  planet.add(moon);
-  planet.userData.moons = planet.userData.moons || [];
-  planet.userData.moons.push(moon);
-  return moon;
-}
-
-function addPlanetRing(planet, { ringOffset = 0.45, thickness = 0.03, color = 0x999999, opacity = 0.7, rotationX = Math.PI / 2, rotationZ = 0 } = {}) {
-  const base = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  const inner = base + ringOffset - thickness * 0.5;
-  const outer = inner + thickness * 1.6;
-  const ringGeo = new THREE.RingGeometry(inner, outer, 128);
-  const ringMat = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.4, transparent: true, opacity, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(ringGeo, ringMat);
-  ring.rotation.x = rotationX;
-  ring.rotation.z = rotationZ;
-  ring.position.set(0, 0, 0);
-  planet.add(ring);
-  planet.userData._ring = ring;
-  return ring;
-}
-
 // sample decorations (scaled)
 addMoon(Asgard, { radius: 0.08, distance: 0.5, color: 0xffeebb, speed: 0.0016 });
 addMoon(Niflheim, { radius: 0.06, distance: 0.45, color: 0xcfe6ff, speed: 0.0012 });
@@ -274,13 +173,6 @@ addMoon(Svartalfheim, { radius: 0.055, distance: 0.42, color: 0x999999, speed: 0
 addMoon(Nidavellir, { radius: 0.07, distance: 0.5, color: 0xd6c9a0, speed: 0.001 });
 
 // --- Muspelheim volcanic decorations (volcano cones, lava lakes, mountains)
-function sphericalToCartesian(radius, lat, lon) {
-  // lat, lon in radians: lat = inclination from equator (-pi/2..pi/2), lon = azimuth
-  const x = radius * Math.cos(lat) * Math.cos(lon);
-  const y = radius * Math.sin(lat);
-  const z = radius * Math.cos(lat) * Math.sin(lon);
-  return new THREE.Vector3(x, y, z);
-}
 
 function addVolcano(planet, { lat = 0, lon = 0, height = 0.18, base = 0.18, lavaRadius = 0.25, lavaColor = 0xff4b1f } = {}) {
   const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
@@ -436,228 +328,11 @@ function createSphericalCap(radius, centerNormal, angularRadius, radialSeg = 6, 
   geo.setIndex(indices);
   return geo;
 }
-
 // create a simple particle emitter for a volcano: returns an object with geometry and points
-function createVolcanoParticles(planet, { origin = new THREE.Vector3(), normal = new THREE.Vector3(0, 1, 0), count = 72 } = {}) {
-  // convert provided world-space origin/normal into planet-local space
-  const worldOrigin = origin.clone();
-  const worldNormal = normal.clone().normalize();
-  const planetWorldQuat = new THREE.Quaternion();
-  planet.getWorldQuaternion(planetWorldQuat);
-  const invPlanetQuat = planetWorldQuat.clone().invert();
-  const localOrigin = worldOrigin.clone();
-  planet.worldToLocal(localOrigin);
-  const localNormal = worldNormal.clone().applyQuaternion(invPlanetQuat).normalize();
-
-  // split into two emitters: smoke (soft, larger) and embers (small, additive)
-  const smokeCount = Math.max(24, Math.floor(count * 0.6));
-  const emberCount = Math.max(8, count - smokeCount);
-
-  function makeEmitter(n, baseSpeed, baseSize, color, additive = false, texture = null) {
-    const positions = new Float32Array(n * 3);
-    const vel = new Float32Array(n * 3);
-    const life = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      positions[i * 3 + 0] = localOrigin.x + (Math.random() - 0.5) * 0.02;
-      positions[i * 3 + 1] = localOrigin.y + (Math.random() - 0.5) * 0.02;
-      positions[i * 3 + 2] = localOrigin.z + (Math.random() - 0.5) * 0.02;
-      const speed = baseSpeed * (0.6 + Math.random() * 0.9);
-      // tangent basis
-      let tangent = new THREE.Vector3(1, 0, 0);
-      if (Math.abs(localNormal.dot(tangent)) > 0.9) tangent.set(0, 1, 0);
-      const bitangent = new THREE.Vector3().crossVectors(localNormal, tangent).normalize();
-      tangent = new THREE.Vector3().crossVectors(bitangent, localNormal).normalize();
-      const dir = localNormal.clone().multiplyScalar(0.5 + Math.random() * 0.9)
-        .add(tangent.clone().multiplyScalar((Math.random() - 0.5) * 0.4))
-        .add(bitangent.clone().multiplyScalar((Math.random() - 0.5) * 0.4)).normalize();
-      vel[i * 3 + 0] = dir.x * speed;
-      vel[i * 3 + 1] = dir.y * speed;
-      vel[i * 3 + 2] = dir.z * speed;
-      life[i] = 0.6 + Math.random() * 1.6;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('aVel', new THREE.BufferAttribute(vel, 3));
-    geo.setAttribute('aLife', new THREE.BufferAttribute(life, 1));
-    const mat = new THREE.PointsMaterial({ color, size: baseSize, sizeAttenuation: true, transparent: true, opacity: additive ? 0.9 : 0.7, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
-    if (texture) { mat.map = texture; mat.alphaTest = 0.02; mat.transparent = true; }
-    const pts = new THREE.Points(geo, mat);
-    pts.frustumCulled = false;
-    planet.add(pts);
-    return { geo, pts, baseSize };
-  }
-
-  // reduce counts/sizes for better performance and use textured sprites
-  const smoke = makeEmitter(Math.max(16, Math.floor(smokeCount * 0.6)), 0.012, 0.08, 0x332622, false, smokeParticleTex);
-  const embers = makeEmitter(Math.max(6, Math.floor(emberCount * 0.6)), 0.03, 0.04, 0xff8a33, true, emberParticleTex);
-
-  return { smoke, embers, originLocal: localOrigin.clone(), localNormal };
-}
-
-// Procedural planet textures (simple canvas gradients/noise)
-function makePlanetTexture(colorA, colorB) {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  // radial gradient
-  const grad = ctx.createRadialGradient(size * 0.35, size * 0.35, size * 0.1, size * 0.5, size * 0.5, size * 0.9);
-  grad.addColorStop(0, colorA);
-  grad.addColorStop(1, colorB);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  // add some stripes/noise
-  for (let i = 0; i < 30; i++) {
-    ctx.fillStyle = 'rgba(255,255,255,0.02)';
-    const y = Math.random() * size;
-    ctx.fillRect(0, y, size, 2 + Math.random() * 4);
-  }
-  return new THREE.CanvasTexture(canvas);
-}
-
-// create a simple continental map: ocean base + a few irregular land blobs
-function makeContinentalTexture(oceanColor = '#1b5d2b', landColor = '#63c66b', size = 1024) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // simple value noise / fbm implementation (deterministic-ish)
-  function hash2(x, y) {
-    const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
-    return s - Math.floor(s);
-  }
-  function smoothNoise(x, y) {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const a = hash2(ix, iy);
-    const b = hash2(ix + 1, iy);
-    const c = hash2(ix, iy + 1);
-    const d = hash2(ix + 1, iy + 1);
-    const u = fx * fx * (3 - 2 * fx);
-    const v = fy * fy * (3 - 2 * fy);
-    const lerp = (p, q, t) => p + (q - p) * t;
-    const x1 = lerp(a, b, u);
-    const x2 = lerp(c, d, u);
-    return lerp(x1, x2, v);
-  }
-  function fbm(x, y, octaves = 5) {
-    let value = 0;
-    let amplitude = 0.5;
-    let freq = 1.0;
-    for (let o = 0; o < octaves; o++) {
-      value += amplitude * smoothNoise(x * freq, y * freq);
-      freq *= 2.0;
-      amplitude *= 0.5;
-    }
-    return value;
-  }
-
-  const img = ctx.createImageData(size, size);
-  // generate equirectangular-style map using lon/lat coordinates so continents wrap nicely
-  for (let j = 0; j < size; j++) {
-    const v = j / size; // 0..1 latitude
-    const lat = v * Math.PI - Math.PI / 2; // -pi/2..pi/2
-    const latFactor = Math.cos(lat) * 0.8 + 0.2; // less land near poles
-    for (let i = 0; i < size; i++) {
-      const u = i / size; // 0..1 longitude
-      const lon = u * Math.PI * 2; // 0..2pi
-      // sample fbm with both lon/lats scaled
-      const nx = Math.cos(lon) * latFactor * 1.2;
-      const ny = Math.sin(lon) * latFactor * 1.2;
-      const e = fbm(nx * 2.0 + 10.0, ny * 2.0 + 10.0, 5);
-      // apply continental mask to bias ocean coverage
-      const mask = Math.pow(Math.max(0, 1.0 - Math.abs(lat) / (Math.PI * 0.5)), 1.2);
-      const elevation = (e * 0.9 + 0.1 * fbm(nx * 6.0, ny * 6.0, 2)) * mask;
-      // choose threshold for land
-      const landThreshold = 0.47 + (Math.sin(lat * 3.0) * 0.02);
-      const idx = (j * size + i) * 4;
-      if (elevation > landThreshold) {
-        // land, shade by elevation
-        const shade = Math.floor(lerpColor(landColor, shadeColor(landColor, -18), Math.min(1, (elevation - landThreshold) * 3.0)));
-        img.data[idx + 0] = (shade >> 16) & 255;
-        img.data[idx + 1] = (shade >> 8) & 255;
-        img.data[idx + 2] = shade & 255;
-        img.data[idx + 3] = 255;
-      } else {
-        // ocean: vary depth color based on elevation to suggest depth
-        const t = Math.max(0, (landThreshold - elevation) / landThreshold);
-        const deep = hexToRgb(oceanColor);
-        // shallow mix towards lighter blue near coasts
-        const shore = mixColor(deep, { r: 80, g: 160, b: 255 }, Math.pow(1 - t, 1.6));
-        img.data[idx + 0] = shore.r;
-        img.data[idx + 1] = shore.g;
-        img.data[idx + 2] = shore.b;
-        img.data[idx + 3] = 255;
-      }
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  // tiny blur for smoothing coastlines
-  // draw canvas onto itself scaled down and up to soften edges
-  const tmp = document.createElement('canvas'); tmp.width = tmp.height = size / 2;
-  const tctx = tmp.getContext('2d');
-  tctx.drawImage(canvas, 0, 0, tmp.width, tmp.height);
-  ctx.clearRect(0, 0, size, size);
-  ctx.drawImage(tmp, 0, 0, size, size);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-// tiny helpers for color operations
-function hexToRgb(hex) {
-  const c = hex.replace('#', '');
-  const num = parseInt(c, 16);
-  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
-}
-function mixColor(a, b, t) {
-  return { r: Math.round(a.r + (b.r - a.r) * t), g: Math.round(a.g + (b.g - a.g) * t), b: Math.round(a.b + (b.b - a.b) * t) };
-}
-function lerpColor(hexA, hexB, t) {
-  const a = hexToRgb(hexA); const b = hexToRgb(hexB);
-  const m = mixColor(a, b, Math.max(0, Math.min(1, t)));
-  return (m.r << 16) | (m.g << 8) | m.b;
-}
-
-// small helper to slightly darken/lighten a hex color
-function shadeColor(hex, percent) {
-  const c = hex.replace('#', '');
-  const num = parseInt(c, 16);
-  let r = (num >> 16) + percent;
-  let g = ((num >> 8) & 0x00FF) + percent;
-  let b = (num & 0x0000FF) + percent;
-  r = Math.max(0, Math.min(255, r));
-  g = Math.max(0, Math.min(255, g));
-  b = Math.max(0, Math.min(255, b));
-  return '#' + (r.toString(16).padStart(2, '0')) + (g.toString(16).padStart(2, '0')) + (b.toString(16).padStart(2, '0'));
-}
-
-// helper: create a soft radial particle texture on a canvas
-function createParticleTexture(size, innerColor, outerColor) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, innerColor);
-  grad.addColorStop(1, outerColor);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-  return tex;
-}
-
+// createVolcanoParticles moved to src/particles.js
 // apply textures to a few planets for variety
 if (Asgard.material) { Asgard.material.map = makePlanetTexture('#ffdba0', '#b5732f'); Asgard.material.needsUpdate = true; }
 if (Midgard.material) {
-  // blue oceans, greener continents
   Midgard.material.map = makeContinentalTexture('#1b6fff', '#63c66b', 1024);
   Midgard.material.roughness = 0.45;
   Midgard.material.metalness = 0.05;
@@ -666,201 +341,11 @@ if (Midgard.material) {
 if (Muspelheim.material) { Muspelheim.material.map = makePlanetTexture('#ff9a6b', '#6a1f10'); Muspelheim.material.needsUpdate = true; }
 if (Jotunheim.material) { Jotunheim.material.map = makePlanetTexture('#bcd0ff', '#506f9a'); Jotunheim.material.needsUpdate = true; }
 if (Svartalfheim.material) { Svartalfheim.material.map = makePlanetTexture('#bfbfbf', '#474747'); Svartalfheim.material.needsUpdate = true; }
-// --- Planet decoration helpers
+// --- Planet decoration helpers (moved to `decorations.js`) ---
 // lists of animated elements
 const animatedGlowRings = [];
 const animatedAtmospheres = [];
 const animatedClouds = [];
-
-function addGlowRing(planet, { color = 0x88ccff, inner = 0.6, outer = 0.8, opacity = 0.25 } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  const innerR = radius + inner; const outerR = radius + outer;
-  const geo = new THREE.RingGeometry(innerR, outerR, 64);
-  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = Math.PI / 2;
-  planet.add(mesh);
-  mesh.userData = mesh.userData || {};
-  mesh.userData.baseOpacity = opacity;
-  animatedGlowRings.push(mesh);
-  return mesh;
-}
-
-function addThinAtmosphere(planet, { color = 0xaaddff, opacity = 0.08, rimColor = 0xaaddff, fresnelIntensity = 0.9 } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  // simple backside lit atmosphere sphere (keeps previous behavior)
-  const geo = new THREE.SphereGeometry(radius * 1.06, 32, 16);
-  const mat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, side: THREE.BackSide, depthWrite: false });
-  const sph = new THREE.Mesh(geo, mat);
-  planet.add(sph);
-  sph.userData = sph.userData || {};
-  sph.userData.baseOpacity = opacity;
-
-  // fresnel rim shader: thin front-facing shell that adds a glowing rim and subtle pulsing
-  const fresnelGeo = new THREE.SphereGeometry(radius * 1.08, 32, 16);
-  const fresnelUniforms = {
-    uTime: { value: 0 },
-    uColor: { value: new THREE.Color(rimColor) },
-    uIntensity: { value: fresnelIntensity }
-  };
-  const fresnelVert = `
-    varying vec3 vNormal;
-    varying vec3 vWorldPos;
-    void main() {
-      vNormal = normalize(normalMatrix * normal);
-      vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `;
-  const fresnelFrag = `
-    uniform float uTime;
-    uniform vec3 uColor;
-    uniform float uIntensity;
-    varying vec3 vNormal;
-    varying vec3 vWorldPos;
-    void main() {
-      vec3 viewDir = normalize(cameraPosition - vWorldPos);
-      float fres = pow(1.0 - max(0.0, dot(vNormal, viewDir)), 2.0);
-      float pulse = 0.8 + 0.45 * sin(uTime * 1.6 + vWorldPos.x * 0.12);
-      vec3 col = uColor * fres * uIntensity * pulse;
-      float alpha = fres * 0.9 * uIntensity * pulse;
-      gl_FragColor = vec4(col, alpha);
-    }
-  `;
-  const fresnelMat = new THREE.ShaderMaterial({ uniforms: fresnelUniforms, vertexShader: fresnelVert, fragmentShader: fresnelFrag, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.FrontSide });
-  const fresnel = new THREE.Mesh(fresnelGeo, fresnelMat);
-  planet.add(fresnel);
-  // store references so other helpers can tweak them
-  sph.userData.fresnel = fresnel;
-  sph.userData.fresnelBaseIntensity = fresnelIntensity;
-  animatedAtmospheres.push(sph);
-  return sph;
-}
-
-// create a drifting particle storm around a planet (local coordinates)
-function addParticleStorm(planet, { count = 200, radiusOffset = 0.2, speed = 0.02, color = 0xcccccc, size = 0.06 } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  const positions = new Float32Array(count * 3);
-  const vel = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const ang = Math.random() * Math.PI * 2;
-    const lat = (Math.random() - 0.5) * 0.6;
-    const r = radius + radiusOffset + (Math.random() - 0.5) * 0.08;
-    const p = sphericalToCartesian(r, lat, ang);
-    positions[i * 3 + 0] = p.x;
-    positions[i * 3 + 1] = p.y;
-    positions[i * 3 + 2] = p.z;
-    // velocity tangentially along longitude to create drifting swirl
-    const t = new THREE.Vector3(-Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(speed * (0.6 + Math.random() * 0.8));
-    vel[i * 3 + 0] = t.x;
-    vel[i * 3 + 1] = (Math.random() - 0.5) * speed * 0.2;
-    vel[i * 3 + 2] = t.z;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aVel', new THREE.BufferAttribute(vel, 3));
-  const mat = new THREE.PointsMaterial({ color, size, map: smokeParticleTex, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.NormalBlending });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  planet.add(points);
-  // add a local wind vector so storms visibly drift around the planet
-  const wind = new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() - 0.2) * 0.008, (Math.random() - 0.5) * 0.02);
-  const windRotateSpeed = (Math.random() * 0.6 - 0.3) * 0.8; // radians/sec
-  const windAxis = new THREE.Vector3(0, 1, 0); // rotate wind around local Y by default
-  // seasonal/gust params
-  const seasonPhase = Math.random() * Math.PI * 2;
-  const seasonSpeed = 0.02 + Math.random() * 0.04; // slow seasonal oscillation
-  const gust = 0.0;
-  const gustDecayRate = 1.6 + Math.random() * 1.2;
-  const gustChance = 0.25 + Math.random() * 0.5; // chance per second
-  // store the intended orbit radius so particles stay near the planet surface
-  const targetRadius = radius + radiusOffset;
-  planet.userData.storm = { geo, points, count, speed, wind, windRotateSpeed, windAxis, seasonPhase, seasonSpeed, gust, gustDecayRate, gustChance, targetRadius };
-  return planet.userData.storm;
-}
-
-function createCloudLayer(planet, { color = 0xffffff, opacity = 0.18, speed = 0.02, scale = 1.08, density = 80, white = false } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  const size = 1024;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  // start transparent
-  ctx.clearRect(0, 0, size, size);
-  // draw many soft cloud blobs (radial gradients) to form organic cloud shapes
-  const blobs = Math.max(6, Math.floor(density));
-  for (let i = 0; i < blobs; i++) {
-    const bx = Math.random() * size;
-    const by = Math.random() * size;
-    const br = size * (0.02 + Math.random() * 0.18);
-    // whiter/denser clouds use higher inner alpha
-    const innerAlpha = white ? (0.7 + Math.random() * 0.25) : (0.35 + Math.random() * 0.45);
-    const outerAlpha = white ? (0.02 + Math.random() * 0.03) : (0.01 + Math.random() * 0.06);
-    const grad = ctx.createRadialGradient(bx, by, Math.max(1, br * 0.03), bx, by, br);
-    grad.addColorStop(0, `rgba(255,255,255,${innerAlpha})`);
-    grad.addColorStop(0.6, `rgba(255,255,255,${Math.max(0.08, innerAlpha * 0.45)})`);
-    grad.addColorStop(1, `rgba(255,255,255,${outerAlpha})`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // subtle overall softening by drawing lightly again with low alpha
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < Math.max(8, Math.floor(blobs / 4)); i++) {
-    const bx = Math.random() * size;
-    const by = Math.random() * size;
-    const br = size * (0.06 + Math.random() * 0.26);
-    const grad = ctx.createRadialGradient(bx, by, br * 0.1, bx, by, br);
-    grad.addColorStop(0, 'rgba(255,255,255,0.06)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1.5, 1);
-  const geo = new THREE.SphereGeometry(radius * scale, 48, 16);
-  const mat = new THREE.MeshStandardMaterial({ map: tex, color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.userData = { cloudSpeed: speed, tex };
-  planet.add(mesh);
-  animatedClouds.push(mesh);
-  return mesh;
-}
-
-function scatterCones(planet, { count = 10, minH = 0.03, maxH = 0.12, color = 0x555555 } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  for (let i = 0; i < count; i++) {
-    const lat = (Math.random() - 0.5) * Math.PI * 0.8;
-    const lon = Math.random() * Math.PI * 2;
-    const pos = sphericalToCartesian(radius + 0.001, lat, lon);
-    const h = minH + Math.random() * (maxH - minH);
-    const b = h * (0.5 + Math.random() * 0.6);
-    const geom = new THREE.ConeGeometry(b, h, 6);
-    const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.8 });
-    const m = new THREE.Mesh(geom, mat);
-    const normal = pos.clone().normalize();
-    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-    m.position.copy(pos.add(normal.clone().multiplyScalar(h * 0.45)));
-    planet.add(m);
-  }
-}
-
-function scatterLights(planet, { count = 8, color = 0xffaa55, intensity = 0.8 } = {}) {
-  const radius = (planet.geometry && planet.geometry.parameters && planet.geometry.parameters.radius) ? planet.geometry.parameters.radius : realmRadius;
-  for (let i = 0; i < count; i++) {
-    const lat = (Math.random() - 0.5) * Math.PI * 0.8;
-    const lon = Math.random() * Math.PI * 2;
-    const pos = sphericalToCartesian(radius + 0.01, lat, lon);
-    const pLight = new THREE.PointLight(color, intensity * (0.6 + Math.random() * 0.8), 1.6);
-    pLight.position.copy(pos);
-    planet.add(pLight);
-  }
-}
 
 // create a floating island visual attached to a planet (keeps planet mesh for raycast)
 function createFloatingIsland(planet, { scale = 1.0, cliffColor = 0x654321, grassColor = 0x2e8b57 } = {}) {
@@ -1010,6 +495,7 @@ function createFloatingIsland(planet, { scale = 1.0, cliffColor = 0x654321, gras
   }
   // small cloud ring under island (soft silhouette)
   const ring = addGlowRing(planet, { color: 0xffffff, inner: 0.0, outer: 0.35, opacity: 0.12 });
+  animatedGlowRings.push(ring);
   // parent island to planet so it moves with it; add island after ring so order is OK
   planet.add(island);
   // adjust island local transform so it sits 'above' planet surface
@@ -1033,6 +519,8 @@ function createFloatingIsland(planet, { scale = 1.0, cliffColor = 0x654321, gras
   island.userData.mistEmitters = [];
   // mist texture
   const mistTex = createParticleTexture(64, 'rgba(255,255,255,0.85)', 'rgba(255,255,255,0)');
+  // register mist particle texture with loader
+  try { loading.add(Promise.resolve(mistTex)); } catch (e) {}
   // helper: create a vertical waterfall plane with a flowing texture
   function makeWaterfall(theta) {
     const wfWidth = baseRadius * (0.22 + Math.random() * 0.12);
@@ -1187,9 +675,12 @@ function addCityToIsland(planet, { density = 16 } = {}) {
 if (typeof Asgard !== 'undefined') {
   // gilded halo and subtle aurora ring
   Asgard.userData.glowRing = addGlowRing(Asgard, { color: 0xffd27a, inner: 0.28, outer: 0.44, opacity: 0.18 });
+  animatedGlowRings.push(Asgard.userData.glowRing);
   Asgard.userData.atmosphere = addThinAtmosphere(Asgard, { color: 0xffedcc, opacity: 0.04 });
+  animatedAtmospheres.push(Asgard.userData.atmosphere);
   // soft cloud layer
   Asgard.userData.cloud = createCloudLayer(Asgard, { color: 0xfff4dd, opacity: 0.06, speed: 0.01, scale: 1.04 });
+  animatedClouds.push(Asgard.userData.cloud);
   // create a floating island visual and keep the Asgard sphere as an invisible pick target
   // make the original planet material transparent so it doesn't render but remains raycastable
   if (Asgard.material) {
@@ -1210,14 +701,19 @@ if (typeof Niflheim !== 'undefined') {
   // icy shards and thin blue atmosphere
   Niflheim.userData.mountains = scatterCones(Niflheim, { count: 14, minH: 0.02, maxH: 0.06, color: 0xddeeef });
   Niflheim.userData.atmosphere = addThinAtmosphere(Niflheim, { color: 0xcfeeff, opacity: 0.12 });
+  animatedAtmospheres.push(Niflheim.userData.atmosphere);
   Niflheim.userData.cloud = createCloudLayer(Niflheim, { color: 0xdfefff, opacity: 0.08, speed: 0.012, scale: 1.03 });
+  animatedClouds.push(Niflheim.userData.cloud);
 }
 if (typeof Midgard !== 'undefined') {
   // soft clouds and greenish banding
   Midgard.userData.atmosphere = addThinAtmosphere(Midgard, { color: 0x88e08a, opacity: 0.06 });
+  animatedAtmospheres.push(Midgard.userData.atmosphere);
   // ensure Midgard has a strong visible cloud layer (user requested more visible clouds)
-  if (!Midgard.userData.cloud) Midgard.userData.cloud = createCloudLayer(Midgard, { color: 0xffffff, opacity: 0.9, speed: 0.018, scale: 1.03, density: 22, white: true });
-  else { Midgard.userData.cloud.material.opacity = Math.max(0.9, Midgard.userData.cloud.material.opacity); Midgard.userData.cloud.material.color.set(0xffffff); }
+  if (!Midgard.userData.cloud) {
+    Midgard.userData.cloud = createCloudLayer(Midgard, { color: 0xffffff, opacity: 0.9, speed: 0.018, scale: 1.03, density: 22, white: true });
+    animatedClouds.push(Midgard.userData.cloud);
+  } else { Midgard.userData.cloud.material.opacity = Math.max(0.9, Midgard.userData.cloud.material.opacity); Midgard.userData.cloud.material.color.set(0xffffff); }
   // add a second, higher cloud band for depth (fewer blobs, still very white)
   if (!Midgard.userData.cloud2) Midgard.userData.cloud2 = createCloudLayer(Midgard, { color: 0xffffff, opacity: 0.6, speed: 0.009, scale: 1.07, density: 10, white: true });
   else { Midgard.userData.cloud2.material.opacity = Math.max(0.6, Midgard.userData.cloud2.material.opacity); Midgard.userData.cloud2.material.color.set(0xffffff); }
@@ -1226,20 +722,25 @@ if (typeof Midgard !== 'undefined') {
 if (typeof Alfheim !== 'undefined') {
   // fey glow and small scattered lights
   Alfheim.userData.glowRing = addGlowRing(Alfheim, { color: 0xaee6c8, inner: 0.18, outer: 0.34, opacity: 0.18 });
+  animatedGlowRings.push(Alfheim.userData.glowRing);
   scatterLights(Alfheim, { count: 10, color: 0x88fff0, intensity: 0.6 });
   Alfheim.userData.cloud = createCloudLayer(Alfheim, { color: 0xeafffb, opacity: 0.06, speed: 0.02, scale: 1.05 });
+  animatedClouds.push(Alfheim.userData.cloud);
 }
 if (typeof Jotunheim !== 'undefined') {
   // big jagged mountains
   Jotunheim.userData.mountains = scatterCones(Jotunheim, { count: 18, minH: 0.06, maxH: 0.22, color: 0x8ea6c8 });
   Jotunheim.userData.atmosphere = addThinAtmosphere(Jotunheim, { color: 0xe6f0ff, opacity: 0.06 });
+  animatedAtmospheres.push(Jotunheim.userData.atmosphere);
   Jotunheim.userData.cloud = createCloudLayer(Jotunheim, { color: 0xf0f5ff, opacity: 0.05, speed: 0.008, scale: 1.02 });
+  animatedClouds.push(Jotunheim.userData.cloud);
 }
 if (typeof Vanaheim !== 'undefined') {
   // pastel spots / blooms
   Vanaheim.userData.mountains = scatterCones(Vanaheim, { count: 8, minH: 0.02, maxH: 0.07, color: 0xffd1b3 });
   scatterLights(Vanaheim, { count: 6, color: 0xffd1b3, intensity: 0.5 });
   Vanaheim.userData.cloud = createCloudLayer(Vanaheim, { color: 0xfff0e6, opacity: 0.05, speed: 0.015, scale: 1.03 });
+  animatedClouds.push(Vanaheim.userData.cloud);
 }
 if (typeof Svartalfheim !== 'undefined') {
   // metallic plates and a tight ring
@@ -1251,6 +752,7 @@ if (typeof Nidavellir !== 'undefined') {
   Nidavellir.userData.lights = scatterLights(Nidavellir, { count: 14, color: 0xffa860, intensity: 0.9 });
   Nidavellir.userData.mountains = scatterCones(Nidavellir, { count: 6, minH: 0.02, maxH: 0.06, color: 0x7a5f3a });
   Nidavellir.userData.cloud = createCloudLayer(Nidavellir, { color: 0xfff0cc, opacity: 0.04, speed: 0.01, scale: 1.02 });
+  animatedClouds.push(Nidavellir.userData.cloud);
 }
 // enable drifting storms on worlds where they make thematic sense
 if (typeof Niflheim !== 'undefined') {
@@ -1443,13 +945,7 @@ camera.add(snowField);
 snowField.position.set(0, 0, -6);
 snowField.frustumCulled = false;
 
-// Mouse parallax
-const mouse = { x: 0, y: 0 };
-const targetMouse = { x: 0, y: 0 };
-window.addEventListener('mousemove', (e) => {
-  targetMouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  targetMouse.y = - (e.clientY / window.innerHeight) * 2 + 1;
-});
+// Mouse parallax handled by src/controls.js
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -1857,6 +1353,71 @@ function animate() {
   camera.lookAt(cameraTarget);
 
   renderer.render(scene, camera);
+
 }
 
-animate();
+  // start animator loop using shared appState
+  // build context for the animator; proxy cameraFollow to keep appState in sync
+  const ctx = {
+    scene,
+    camera,
+    renderer,
+    updateOrbits,
+    planets,
+    orbitSpeed,
+    worldGroup,
+    animatedGlowRings,
+    animatedAtmospheres,
+    animatedClouds,
+    snowGeo,
+    snowCount,
+    snowVel,
+    starMat,
+    runeMaterials,
+    outerRing,
+    innerRing,
+    hourHand,
+    minuteHand,
+    secondHand,
+    cameraBase,
+    cameraTarget,
+    cameraAnim,
+    cameraFollowOffset,
+    createParticleTexture,
+    targetMouse: appState.targetMouse
+  };
+  Object.defineProperty(ctx, 'cameraFollow', {
+    get() { return appState.cameraFollow; },
+    set(v) { appState.cameraFollow = v; },
+    configurable: true
+  });
+
+  // diagnostic: ensure createAnimator is available
+  try {
+    console.log('createAnimator typeof:', typeof createAnimator);
+  } catch (e) {
+    console.error('createAnimator log error', e);
+  }
+
+  // create animator and controls, but only hide the loading overlay after
+  // registered heavy initialization tasks complete.
+  (async () => {
+    let animator;
+    try {
+      animator = createAnimator(ctx);
+    } catch (err) {
+      console.error('createAnimator threw:', err);
+      animator = undefined;
+    }
+    const controls = setupControls({ canvas: renderer.domElement, camera, planets, cameraAnim, cameraBase, cameraTarget, cameraFollowOffset, appState, snapToSection: window.snapToSection });
+    try {
+      // wait for registered loading tasks (textures, particle textures, etc.)
+      await loading.ready();
+    } catch (e) {
+      console.warn('loading.wait threw', e);
+    }
+    // hide loading overlay after heavy initialization completes
+    try { const ov = document.getElementById('loading-overlay'); if (ov) ov.classList.add('hidden'); } catch (e) {}
+    if (animator && typeof animator.start === 'function') animator.start();
+    else console.error('animator is undefined or missing start() — createAnimator returned:', animator);
+  })();
