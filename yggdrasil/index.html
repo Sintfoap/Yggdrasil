@@ -180,8 +180,11 @@
     }
     .lang-toggle:hover { background: var(--border); }
     /* ── Layout ── */
-    .container { max-width: 860px; margin: 0 auto; padding: 2rem 1rem; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    /* Leaderboard layout: left column (user list) + main chart; becomes single-column on narrow screens */
+    .leaderboard-layout { display: grid; grid-template-columns: minmax(140px,200px) 1fr; gap: 1rem; align-items: start; margin-top: 16px; }
+    @media (max-width: 920px) { .leaderboard-layout { grid-template-columns: 1fr; } }
     @media (max-width: 600px) {
       .grid { grid-template-columns: 1fr; }
       /* price table: allow horizontal scroll on small screens */
@@ -394,9 +397,9 @@
         </h2>
         <p class="empty" id="user-msg" style="margin-top:8px">Ready.</p>
 
-        <div id="leaderboard-chart" style="width:100%;height:200px;margin-top:12px;border-radius:8px;overflow:hidden;background:var(--surface2);box-sizing:border-box;padding:8px"></div>
+        <div id="leaderboard-chart" style="width:100%;height:260px;margin-top:12px;border-radius:8px;overflow:hidden;background:var(--surface2);box-sizing:border-box;padding:8px"></div>
 
-        <div class="leaderboard-layout" style="display:grid;grid-template-columns:minmax(min-content,220px) 1fr;gap:1rem;margin-top:12px">
+          <div class="leaderboard-layout" style="display:grid;gap:1rem;margin-top:16px">
           <div class="card" style="max-height:60vh;overflow:auto;display:flex;flex-direction:column;padding:8px;box-sizing:border-box" id="users-list-wrap">
             <h3 style="margin-bottom:8px;color:var(--gold)">Users</h3>
             <ul id="users-list" style="list-style:none;padding:0;margin:0;flex:1;overflow:auto"></ul>
@@ -412,8 +415,8 @@
                 <div id="desc-stats" style="text-align:right;color:var(--muted)"></div>
               </div>
             </div>
-            <div class="card" style="flex:1;display:flex;align-items:stretch;">
-              <div id="chart-container" style="flex:1;min-height:220px;border-radius:8px;background:var(--surface2);padding:8px;box-sizing:border-box;height:100%"></div>
+            <div class="card" style="flex:1;display:flex;align-items:stretch;min-height:360px">
+              <div id="chart-container" style="flex:1;min-height:320px;border-radius:8px;background:var(--surface2);padding:12px;box-sizing:border-box;height:100%"></div>
             </div>
           </div>
         </div>
@@ -497,11 +500,17 @@
       function drawTimeline(results) { /* same implementation as standalone (omitted here for brevity) */
         try {
           const container = document.getElementById('chart-container'); if (!container) return;
-          let canvas = container.querySelector('canvas'); if (!canvas) { canvas = document.createElement('canvas'); canvas.id = 'mcsr-chart'; canvas.style.width = '100%'; canvas.style.height = '100%'; canvas.style.borderRadius = '8px'; canvas.style.display = 'block'; container.innerHTML = ''; container.appendChild(canvas); }
+          // remove any existing canvas to avoid leftover size/listener state
+          try { const old = container.querySelector('canvas'); if (old && old.parentNode) old.parentNode.removeChild(old); } catch (e) { }
+          container.style.position = container.style.position || 'relative';
+          container.style.overflow = 'hidden';
+          const canvas = document.createElement('canvas'); canvas.id = 'mcsr-chart'; canvas.style.width = '100%'; canvas.style.display = 'block'; canvas.style.borderRadius = '8px'; canvas.style.boxSizing = 'border-box'; container.innerHTML = ''; container.appendChild(canvas);
           const ctx = canvas.getContext('2d'); const DPR = devicePixelRatio || 1; const rect = container.getBoundingClientRect(); const cs = getComputedStyle(container);
           const padLeft = parseFloat(cs.paddingLeft) || 0; const padRight = parseFloat(cs.paddingRight) || 0; const padTop = parseFloat(cs.paddingTop) || 0; const padBottom = parseFloat(cs.paddingBottom) || 0;
           const innerCssW = Math.max(320, Math.floor(rect.width - padLeft - padRight)); const innerCssH = Math.max(120, Math.floor((rect.height || 180) - padTop - padBottom));
-          canvas.style.width = innerCssW + 'px'; canvas.style.height = innerCssH + 'px'; const w = canvas.width = Math.floor(innerCssW * DPR); const h = canvas.height = Math.floor(innerCssH * DPR);
+          // fit canvas to container: CSS width 100% and explicit pixel buffer for DPR
+          canvas.style.height = innerCssH + 'px';
+          const w = canvas.width = Math.floor(innerCssW * DPR); const h = canvas.height = Math.floor(innerCssH * DPR);
           ctx.clearRect(0, 0, w, h);
           if (!results || !results.length) { ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`; ctx.fillText('No games to display', 12 * DPR, 24 * DPR); return; }
           let cum = 0; const points = results.map(r => { const delta = (r.win === true) ? 1 : (r.win === false ? -1 : 0); cum += delta; return { date: r.date || 0, cum }; });
@@ -515,7 +524,152 @@
           ctx.beginPath(); ctx.lineWidth = Math.max(2, 2 * DPR); ctx.strokeStyle = '#4a7ef5'; for (let i = 0; i < points.length; i++) { const x = margin + i * step; const y = valueToY(points[i].cum); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
           for (let i = 0; i < points.length; i++) { const x = margin + i * step; const y = valueToY(points[i].cum); const r = results[i]; const color = (r.win === true) ? '#2eb87a' : (r.win === false ? '#e05060' : '#888888'); ctx.beginPath(); ctx.fillStyle = '#111'; ctx.arc(x, y, 4 * DPR, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.fillStyle = color; ctx.arc(x, y, 3 * DPR, 0, Math.PI * 2); ctx.fill(); }
           const legendX = w - margin - 180 * DPR; const legendY = margin / 2 + 8 * DPR; ctx.fillStyle = '#2eb87a'; ctx.fillRect(legendX, legendY, 12 * DPR, 12 * DPR); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${12 * DPR}px sans-serif`; ctx.fillText(' Win', legendX + 16 * DPR, legendY + 10 * DPR); ctx.fillStyle = '#e05060'; ctx.fillRect(legendX + 92 * DPR, legendY, 12 * DPR, 12 * DPR); ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.fillText(' Loss', legendX + 108 * DPR, legendY + 10 * DPR);
+          // store some metadata for interactivity
+          try {
+            canvas._timelineMeta = { points, results, margin, step, DPR };
+            // click handler: pick nearest point and open game replay if a game_id exists
+            canvas.style.cursor = 'pointer';
+            canvas.addEventListener('click', function (ev) {
+              try {
+                const meta = canvas._timelineMeta;
+                if (!meta || !meta.points || !meta.results) return;
+                const rect = canvas.getBoundingClientRect();
+                const cx = (ev.clientX - rect.left) * (canvas.width / rect.width);
+                // compute index by inverse of x = margin + i * step
+                const i = Math.round((cx / (meta.DPR) - meta.margin) / meta.step);
+                if (i < 0 || i >= meta.results.length) return;
+                const entry = meta.results[i];
+                const gid = entry && (entry.game_id || (entry.raw && (entry.raw.game_id || entry.raw.id)));
+                if (!gid) {
+                  // show brief feedback
+                  try { const msg = document.getElementById('user-msg'); if (msg) msg.textContent = 'No game id for this point.'; } catch (e) {}
+                  return;
+                }
+                // fetch and show replay
+                showGameReplay(gid);
+              } catch (e) { console.warn('timeline click handler error', e); }
+            }, { passive: true });
+          } catch (e) { /* ignore */ }
         } catch (err) { console.error('drawTimeline error', err); }
+      }
+
+      // Show a game replay in the chart container (replaces timeline view)
+      async function showGameReplay(gameId) {
+        try {
+          const container = document.getElementById('chart-container'); if (!container) return;
+          // show loading
+          container.innerHTML = '<div style="padding:12px;color:var(--muted)">Loading game ' + gameId + '…</div>';
+          const url = API_ROOT.replace(/\/$/, '') + '/games/' + encodeURIComponent(gameId) + '/';
+          let res = null;
+          try { res = await fetch(url); } catch (e) { res = null; }
+          if (!res || !res.ok) {
+            // try without trailing slash
+            try { res = await fetch(API_ROOT.replace(/\/$/, '') + '/games/' + encodeURIComponent(gameId)); } catch (e) { res = null; }
+          }
+          if (!res || !res.ok) { container.innerHTML = '<div class="empty">Failed to load game data.</div>'; return; }
+          const data = await res.json();
+          renderGameReplay(container, data, gameId);
+        } catch (e) { console.error('showGameReplay error', e); }
+      }
+
+      // Render the replay UI for a game dump. If the dump contains an explicit move history
+      // (fields like history, moves, actions, log), use it. Otherwise synthesize a placement
+      // sequence from the final board map (alphabetical by position).
+      function renderGameReplay(container, dump, gameId) {
+        try {
+          container.innerHTML = '';
+          const wrap = document.createElement('div'); wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; wrap.style.gap = '8px'; wrap.style.height = '100%';
+          // header controls
+          const hdr = document.createElement('div'); hdr.style.display = 'flex'; hdr.style.justifyContent = 'space-between'; hdr.style.alignItems = 'center';
+          const left = document.createElement('div'); left.innerHTML = `<strong style="color:var(--gold)">Game ${gameId}</strong> <span style="color:var(--muted);font-size:0.9rem;margin-left:8px">Turn: ${dump.turn_no || '-'} • Phase: ${dump.phase || '-'}</span>`;
+          const right = document.createElement('div'); right.style.display = 'flex'; right.style.gap = '8px';
+          const backBtn = document.createElement('button'); backBtn.className = 'btn btn-sm'; backBtn.textContent = 'Back to timeline'; backBtn.addEventListener('click', () => { if (window._acquire_state && window._acquire_state.lastMapped) drawTimeline(window._acquire_state.lastMapped); renderInlineSummary(window._acquire_state.lastMapped || []); });
+          right.appendChild(backBtn);
+          hdr.appendChild(left); hdr.appendChild(right);
+
+          // main area: board + summary
+          const main = document.createElement('div'); main.style.display = 'flex'; main.style.gap = '12px'; main.style.alignItems = 'flex-start'; main.style.justifyContent = 'flex-start';
+          // board canvas (final board)
+          const boardWrap = document.createElement('div'); boardWrap.style.background = 'var(--surface2)'; boardWrap.style.padding = '8px'; boardWrap.style.borderRadius = '8px';
+          const boardCanvas = document.createElement('canvas'); boardCanvas.width = 540; boardCanvas.height = 720; boardCanvas.style.width = '360px'; boardCanvas.style.height = '480px'; boardCanvas.style.display = 'block'; boardCanvas.style.borderRadius = '6px'; boardWrap.appendChild(boardCanvas);
+
+          // summary panel: players, money, hands, plots
+          const summary = document.createElement('div'); summary.style.display = 'flex'; summary.style.flexDirection = 'column'; summary.style.gap = '8px'; summary.style.minWidth = '220px'; summary.style.maxWidth = '380px';
+
+          // meta info
+          const meta = document.createElement('div'); meta.style.color = 'var(--muted)'; meta.style.fontSize = '0.95rem'; meta.innerHTML = `<div>Players: ${dump.player_count || Object.keys(dump.players || {}).length}</div><div>Winner: ${dump.winner || '-'}</div>`;
+          summary.appendChild(meta);
+
+          const playersWrap = document.createElement('div'); playersWrap.style.display = 'flex'; playersWrap.style.flexDirection = 'column'; playersWrap.style.gap = '8px'; playersWrap.style.maxHeight = '480px'; playersWrap.style.overflow = 'auto';
+
+          const players = dump.players || {};
+          const order = Array.isArray(dump.turn_order) ? dump.turn_order : Object.keys(players || {});
+          for (const name of order) {
+            const p = players[name] || players[name] === 0 ? players[name] : players[name];
+            if (!p) continue;
+            const card = document.createElement('div'); card.style.background = 'var(--surface)'; card.style.border = '1px solid var(--border)'; card.style.borderRadius = '8px'; card.style.padding = '8px';
+            const title = document.createElement('div'); title.style.fontWeight = '800'; title.style.color = 'var(--gold)'; title.textContent = name;
+            const money = document.createElement('div'); money.style.color = 'var(--muted)'; money.textContent = `Money: ${Number(p.money || 0).toLocaleString()}`;
+            const hand = document.createElement('div'); hand.style.color = 'var(--muted)'; hand.textContent = `Hand (${p.hand_size || (p.hand && p.hand.length) || 0}): ${Array.isArray(p.hand) ? p.hand.join(', ') : (p.hand || '')}`;
+            const stocks = document.createElement('div'); stocks.style.color = 'var(--muted)';
+            const stocksMap = p.stocks || {};
+            const owned = Object.keys(stocksMap || {}).filter(k => (stocksMap[k] || 0) > 0).map(k => `${k}: ${stocksMap[k]}`);
+            stocks.textContent = `Plots: ${owned.length ? owned.join(', ') : 'None'}`;
+            card.appendChild(title); card.appendChild(money); card.appendChild(hand); card.appendChild(stocks);
+            playersWrap.appendChild(card);
+          }
+
+          summary.appendChild(playersWrap);
+
+          main.appendChild(boardWrap); main.appendChild(summary);
+          wrap.appendChild(hdr); wrap.appendChild(main);
+          container.appendChild(wrap);
+
+          // render final board
+          const finalBoard = dump.board || {};
+          renderBoardState(boardCanvas, finalBoard);
+        } catch (e) { console.error('renderGameReplay error', e); container.innerHTML = '<div class="empty">Failed to render game replay.</div>'; }
+      }
+
+      // Draw the board grid (A1..I12) and render chain labels in occupied tiles
+      function renderBoardState(canvas, boardMap) {
+        try {
+          const ctx = canvas.getContext('2d'); const DPR = devicePixelRatio || 1; const w = canvas.width = Math.floor(360 * DPR); const h = canvas.height = Math.floor(480 * DPR); canvas.style.width = '360px'; canvas.style.height = '480px'; ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface2') || '#242424'; ctx.fillRect(0, 0, w, h);
+          const cols = 9; const rows = 12; const pad = 12 * DPR; const gridW = w - pad * 2; const gridH = h - pad * 2; const cellW = gridW / cols; const cellH = gridH / rows;
+          ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = Math.max(1, DPR);
+          ctx.font = `${12 * DPR}px sans-serif`;
+          // draw cells
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const x = pad + c * cellW; const y = pad + r * cellH; ctx.beginPath(); ctx.rect(x, y, cellW, cellH); ctx.stroke();
+              // label corner
+              ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted') || '#888'; ctx.font = `${11 * DPR}px sans-serif`;
+              const pos = String.fromCharCode(65 + c) + (r + 1);
+              ctx.fillText(pos, x + 6 * DPR, y + 14 * DPR);
+              // draw occupant
+              const occ = boardMap && boardMap[pos];
+              if (occ) {
+                // simple color mapping by chain name hash
+                const col = colorForString(occ);
+                ctx.fillStyle = col;
+                ctx.fillRect(x + 4 * DPR, y + 20 * DPR, cellW - 8 * DPR, cellH - 24 * DPR);
+                ctx.fillStyle = '#000'; ctx.font = `${11 * DPR}px sans-serif`;
+                const label = (occ && occ.short_name) ? occ.short_name : (occ && typeof occ === 'string' ? (occ.length > 10 ? occ.slice(0, 10) + '…' : occ) : String(occ));
+                wrapText(ctx, label, x + 8 * DPR, y + 28 * DPR, cellW - 12 * DPR, 12 * DPR);
+              }
+            }
+          }
+        } catch (e) { console.error('renderBoardState error', e); }
+      }
+
+      function colorForString(s) {
+        try {
+          const t = ('' + s).toString(); let h = 0; for (let i = 0; i < t.length; i++) h = (h << 5) - h + t.charCodeAt(i); const r = (h >> 16) & 255; const g = (h >> 8) & 255; const b = h & 255; return `rgba(${Math.abs(r)%200+40},${Math.abs(g)%200+40},${Math.abs(b)%200+40},0.95)`; } catch (e) { return '#999'; }
+      }
+
+      function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(' '); let line = ''; for (let n = 0; n < words.length; n++) { const testLine = line + words[n] + ' '; const metrics = ctx.measureText(testLine); if (metrics.width > maxWidth && n > 0) { ctx.fillText(line, x, y); line = words[n] + ' '; y += lineHeight; } else { line = testLine; } } ctx.fillText(line, x, y);
       }
 
       async function fetchUsersList() { const url = API_ROOT.replace(/\/$/, '') + '/users/'; try { const res = await fetch(url); if (!res.ok) throw new Error('Network'); const data = await res.json(); if (Array.isArray(data)) return data; if (data && Array.isArray(data.results)) return data.results; for (const k of Object.keys(data || {})) { if (Array.isArray(data[k])) return data[k]; } return null; } catch (e) { console.warn('fetchUsersList failed', e); return null; } }
